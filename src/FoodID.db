@@ -1,0 +1,10 @@
+database module FoodID exposing (FoodID, fromUInt64)
+
+
+type FoodID
+    = FoodID UInt64
+
+
+fromUInt64 : UInt64 -> FoodID
+fromUInt64 n =
+    FoodID n

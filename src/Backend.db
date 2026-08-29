@@ -1,0 +1,52 @@
+database module Backend exposing
+    ( endpoint createNewPerson
+    , endpoint getPeople
+    )
+
+import Cookies exposing (Cookies)
+import PersonId exposing (PersonId)
+import Rows as R exposing (Rows)
+import Security
+import Sequence as Seq exposing (Sequence)
+import Table exposing (Table, access, insert, table)
+
+
+type alias Person =
+    { id : PersonId
+    , name : String
+    }
+
+
+people : Table Security.Unrestricted Person
+people :=
+    table
+        { primary = .id
+        , security = Security.unrestricted
+        , indexes = []
+        , constraints = []
+        }
+
+
+personIds : Sequence PersonId
+personIds :=
+    Seq.uint64 PersonId.fromUInt64
+
+
+createNewPerson : Cookies -> String -> Transaction ()
+createNewPerson _ name =
+    let
+        id :=
+            Seq.next personIds
+    in
+    insert people
+        Security.Unrestricted
+        { id = id
+        , name = name
+        }
+
+
+getPeople : Cookies -> Transaction (Rows String)
+getPeople _ =
+    access people Security.Unrestricted
+        |> R.map .name
+        |> R.selectAll

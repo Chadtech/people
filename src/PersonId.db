@@ -1,0 +1,10 @@
+database module PersonId exposing (PersonId, fromUInt64)
+
+
+type PersonId
+    = PersonId UInt64
+
+
+fromUInt64 : UInt64 -> PersonId
+fromUInt64 n =
+    PersonId n
