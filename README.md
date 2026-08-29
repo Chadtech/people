@@ -8,5 +8,5 @@ elm make src/Main.elm
 acadia serve --html=index.html
 ```
 
-Then open <http://localhost:9000>. The page reads foods with `getFoods` and
-writes new ones with `addFood` through Acadia's `/_endpoints` route.
+Then open <http://localhost:9000>. The page reads people from `getPeople` and
+writes new ones with `addPerson` through Acadia's `/_endpoints` route.
