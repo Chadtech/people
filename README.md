@@ -22,4 +22,6 @@ make serve
 ```
 
 Then open <http://localhost:9000>. The page reads people from `getPeople` and
-writes new ones with `addPerson` through Acadia's `/_endpoints` route.
+writes new ones with `addPerson` through Acadia's `/_endpoints` route. The Elm
+application uses browser navigation, serves its `NewPerson` route at
+<http://localhost:9000/people/new>, and renders `PageNotFound` for unknown URLs.

@@ -1,161 +1,108 @@
 module Main exposing (main)
 
-import Acadia.Transaction
-import Backend
 import Browser
-import Html.Styled as Html exposing (Html)
-import Html.Styled.Attributes as Attr
-import Html.Styled.Events as Event
-import Style
-import View.Button as Button
-import View.TextField as TextField
+import Browser.Navigation as Navigation
+import Html
+import NewPerson
+import Route exposing (Route)
+import Shared
+import Url exposing (Url)
 
 
-endpointUrl : String
-endpointUrl =
-    "/_endpoints"
-
-
-type alias Model =
-    { people : List String
-    , newPerson : String
-    , status : Status
-    }
-
-
-type Status
-    = Loading
-    | Ready
-    | Saving
-    | Failed String
+type Model
+    = NewPerson NewPerson.Model
+    | PageNotFound Shared.Model
 
 
 type Msg
-    = ChangedNewPerson String
-    | SubmittedPerson
-    | AddedPerson (Maybe ())
-    | GotPeople (Maybe (List String))
+    = ClickedLink Browser.UrlRequest
+    | ChangesRoute (Maybe Route)
+    | NewPersonMsg NewPerson.Msg
 
 
 main : Program () Model Msg
 main =
-    Browser.element
+    Browser.application
         { init = init
+        , onUrlChange = ChangesRoute << Route.fromUrl
+        , onUrlRequest = ClickedLink
         , update = update
         , subscriptions = always Sub.none
-        , view = view >> Html.toUnstyled
+        , view = view
         }
 
 
-init : () -> ( Model, Cmd Msg )
-init _ =
-    let
-        model : Model
-        model =
-            { people = []
-            , newPerson = ""
-            , status = Loading
-            }
-    in
-    ( model
-    , getPeople
-    )
+init : () -> Url -> Navigation.Key -> ( Model, Cmd Msg )
+init _ url key =
+    changeRoute (Route.fromUrl url) (Shared.init key)
 
 
-getPeople : Cmd Msg
-getPeople =
-    Acadia.Transaction.attempt endpointUrl GotPeople Backend.getPeople
+changeRoute : Maybe Route -> Shared.Model -> ( Model, Cmd Msg )
+changeRoute maybeRoute sharedModel =
+    case maybeRoute of
+        Just Route.NewPerson ->
+            NewPerson.init sharedModel
+                |> Tuple.mapFirst NewPerson
+                |> Tuple.mapSecond (Cmd.map NewPersonMsg)
+
+        Nothing ->
+            ( PageNotFound sharedModel, Cmd.none )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        ChangedNewPerson newPerson ->
-            ( { model | newPerson = newPerson }, Cmd.none )
+        ClickedLink urlRequest ->
+            case urlRequest of
+                Browser.Internal url ->
+                    ( model, Navigation.pushUrl (shared model).key (Url.toString url) )
 
-        SubmittedPerson ->
-            let
-                person =
-                    String.trim model.newPerson
-            in
-            if String.isEmpty person || model.status == Saving then
-                ( model, Cmd.none )
+                Browser.External url ->
+                    ( model, Navigation.load url )
 
-            else
-                ( { model | status = Saving }
-                , Acadia.Transaction.attempt endpointUrl AddedPerson (Backend.createNewPerson person)
-                )
+        ChangesRoute maybeRoute ->
+            changeRoute maybeRoute (shared model)
 
-        AddedPerson (Just ()) ->
-            ( { model | newPerson = "", status = Loading }, getPeople )
+        NewPersonMsg newPersonMsg ->
+            case model of
+                NewPerson newPersonModel ->
+                    NewPerson.update newPersonMsg newPersonModel
+                        |> Tuple.mapFirst NewPerson
+                        |> Tuple.mapSecond (Cmd.map NewPersonMsg)
 
-        AddedPerson Nothing ->
-            ( { model | status = Failed "Acadia could not save that person." }, Cmd.none )
-
-        GotPeople (Just people) ->
-            ( { model | people = people, status = Ready }, Cmd.none )
-
-        GotPeople Nothing ->
-            ( { model | status = Failed "Could not read people from Acadia." }, Cmd.none )
+                PageNotFound _ ->
+                    ( model, Cmd.none )
 
 
-view : Model -> Html Msg
+shared : Model -> Shared.Model
+shared model =
+    case model of
+        NewPerson newPersonModel ->
+            NewPerson.shared newPersonModel
+
+        PageNotFound sharedModel ->
+            sharedModel
+
+
+view : Model -> Browser.Document Msg
 view model =
-    Html.div
-        [ Attr.css
-            [ Style.bgNightwood0
-            , Style.hFullViewport
-            , Style.justifyCenter
-            , Style.row
-            , Style.textGray5
-            , Style.wFull
-            ]
-        ]
-        [ Html.div
-            [ Attr.css
-                [ Style.maxW32
-                , Style.px4
-                , Style.py16
-                , Style.wFull
-                ]
-            ]
-            [ Html.h1 [ Attr.css [ Style.fontBold, Style.mb4, Style.text4xl ] ] [ Html.text "People" ]
-            , Html.form [ Attr.css [ Style.g2, Style.row ], Event.onSubmit SubmittedPerson ]
-                [ Html.div [ Attr.css [ Style.flex1, Style.minW0 ] ]
-                    [ TextField.simple model.newPerson ChangedNewPerson
-                        |> TextField.toHtml
+    case model of
+        NewPerson newPersonModel ->
+            NewPerson.view newPersonModel
+                |> mapDocument NewPersonMsg
+
+        PageNotFound _ ->
+            { title = "Page not found"
+            , body =
+                [ Html.main_ []
+                    [ Html.h1 [] [ Html.text "Page not found" ]
                     ]
-                , Button.primary
-                    (if model.status == Saving then
-                        "Saving..."
-
-                     else
-                        "Add"
-                    )
-                    SubmittedPerson
-                    |> Button.toHtml
                 ]
-            , statusView model.status
-            , Html.ul [ Attr.css [ Style.p0 ] ]
-                (List.map
-                    (\person -> Html.li [ Attr.css [ Style.py1 ] ] [ Html.text person ])
-                    model.people
-                )
-            ]
-        ]
+            }
 
 
-statusView : Status -> Html.Html msg
-statusView status =
-    case status of
-        Loading ->
-            Html.p [] [ Html.text "Loading from Acadia..." ]
-
-        Ready ->
-            Html.text ""
-
-        Saving ->
-            Html.p [] [ Html.text "Writing to Acadia..." ]
-
-        Failed message ->
-            Html.p [ Attr.css [ Style.textRed1 ] ] [ Html.text message ]
+mapDocument : (a -> msg) -> Browser.Document a -> Browser.Document msg
+mapDocument toMsg document =
+    { title = document.title
+    , body = List.map (Html.map toMsg) document.body
+    }
