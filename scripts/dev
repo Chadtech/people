@@ -1,0 +1,54 @@
+#!/bin/sh
+
+set -eu
+
+for dependency in acadia elm watchexec
+do
+    if ! command -v "$dependency" >/dev/null 2>&1
+    then
+        echo "Missing required command: $dependency" >&2
+        exit 1
+    fi
+done
+
+backend_pid=
+frontend_pid=
+
+cleanup() {
+    trap - EXIT HUP INT TERM
+
+    if [ -n "$frontend_pid" ]
+    then
+        kill "$frontend_pid" 2>/dev/null || true
+    fi
+
+    if [ -n "$backend_pid" ]
+    then
+        kill "$backend_pid" 2>/dev/null || true
+    fi
+
+    wait 2>/dev/null || true
+}
+
+trap cleanup EXIT HUP INT TERM
+
+echo "Watching Acadia sources; .db saves rebuild everything and restart the server."
+watchexec \
+    --restart \
+    --watch src \
+    --exts db \
+    -- \
+    sh -c 'acadia make --gen-elm=generated && elm make src/Main.elm && exec acadia serve --html=index.html' &
+backend_pid=$!
+
+echo "Watching Elm sources; .elm saves recompile the page without restarting Acadia."
+watchexec \
+    --postpone \
+    --watch src \
+    --exts elm \
+    --shell none \
+    -- \
+    elm make src/Main.elm &
+frontend_pid=$!
+
+wait "$backend_pid"

@@ -7,6 +7,8 @@ import Html.Styled as Html exposing (Html)
 import Html.Styled.Attributes as Attr
 import Html.Styled.Events as Event
 import Style
+import View.Button as Button
+import View.TextField as TextField
 
 
 endpointUrl : String
@@ -119,46 +121,19 @@ view model =
             ]
             [ Html.h1 [ Attr.css [ Style.fontBold, Style.mb4, Style.text4xl ] ] [ Html.text "People" ]
             , Html.form [ Attr.css [ Style.g2, Style.row ], Event.onSubmit SubmittedPerson ]
-                [ Html.input
-                    [ Attr.value model.newPerson
-                    , Event.onInput ChangedNewPerson
-                    , Attr.placeholder "Add a person"
-                    , Attr.disabled (model.status == Saving)
-                    , Attr.css
-                        [ Style.bgNightwood1
-                        , Style.border
-                        , Style.borderGray2
-                        , Style.flex1
-                        , Style.minW0
-                        , Style.outlineNone
-                        , Style.px3
-                        , Style.py2
-                        , Style.rounded
-                        , Style.textGray5
-                        ]
+                [ Html.div [ Attr.css [ Style.flex1, Style.minW0 ] ]
+                    [ TextField.simple model.newPerson ChangedNewPerson
+                        |> TextField.toHtml
                     ]
-                    []
-                , Html.button
-                    [ Attr.disabled (String.isEmpty (String.trim model.newPerson) || model.status == Saving)
-                    , Attr.css
-                        [ Style.bgYellow1
-                        , Style.borderNone
-                        , Style.cursorPointer
-                        , Style.hover [ Style.bgGray1 ]
-                        , Style.px4
-                        , Style.py2
-                        , Style.rounded
-                        , Style.textYellow5
-                        ]
-                    ]
-                    [ Html.text
-                        (if model.status == Saving then
-                            "Saving..."
+                , Button.primary
+                    (if model.status == Saving then
+                        "Saving..."
 
-                         else
-                            "Add"
-                        )
-                    ]
+                     else
+                        "Add"
+                    )
+                    SubmittedPerson
+                    |> Button.toHtml
                 ]
             , statusView model.status
             , Html.ul [ Attr.css [ Style.p0 ] ]
