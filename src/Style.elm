@@ -9,6 +9,7 @@ module Style exposing
     , bgNightwood1
     , bgNightwood2
     , bgNightwood3
+    , bgNightwoodGrain
     , bgNone
     , bgRed0
     , bgYellow1
@@ -50,6 +51,7 @@ module Style exposing
     , flexP5
     , fontBold
     , fontItalic
+    , fontMonospace
     , fontWeight1000
     , fontWeight300
     , fontWeight500
@@ -1288,6 +1290,15 @@ bgNightwood0 =
     Css.property "background" nightwood0Str
 
 
+bgNightwoodGrain : Css.Style
+bgNightwoodGrain =
+    Css.batch
+        [ Css.property "background-color" nightwood0Str
+        , Css.property "background-image"
+            "radial-gradient(ellipse at 18% 12%, rgba(20, 41, 9, 0.2), transparent 38%), repeating-linear-gradient(96deg, rgba(87, 82, 79, 0.035) 0, rgba(87, 82, 79, 0.035) 1px, transparent 1px, transparent 8px), linear-gradient(145deg, #071d10 0%, #030907 48%, #07150c 100%)"
+        ]
+
+
 bgNightwood1 : Css.Style
 bgNightwood1 =
     Css.property "background" nightwood1Str
@@ -1425,6 +1436,20 @@ textEllipsis =
 fontItalic : Css.Style
 fontItalic =
     Css.fontStyle Css.italic
+
+
+fontMonospace : Css.Style
+fontMonospace =
+    Css.fontFamilyMany
+        [ "Fira Code"
+        , "SFMono-Regular"
+        , "SF Mono"
+        , "Menlo"
+        , "Monaco"
+        , "Consolas"
+        , "Liberation Mono"
+        ]
+        Css.monospace
 
 
 fontWeight1000 : Css.Style

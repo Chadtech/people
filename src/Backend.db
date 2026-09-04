@@ -1,6 +1,9 @@
 database module Backend exposing
-    ( endpoint createNewPerson
+    ( Person
+    , PersonPageFlags
+    , endpoint createNewPerson
     , endpoint getPeople
+    , endpoint loadPersonPage
     )
 
 import Cookies exposing (Cookies)
@@ -8,7 +11,7 @@ import PersonId exposing (PersonId)
 import Rows as R exposing (Rows)
 import Security
 import Sequence as Seq exposing (Sequence)
-import Table exposing (Table, access, insert, table)
+import Table exposing (Table)
 
 
 type alias Person =
@@ -17,9 +20,14 @@ type alias Person =
     }
 
 
+type alias PersonPageFlags =
+    { person : Person
+    }
+
+
 people : Table Security.Unrestricted Person
 people :=
-    table
+    Table.table
         { primary = .id
         , security = Security.unrestricted
         , indexes = []
@@ -32,21 +40,39 @@ personIds :=
     Seq.uint64 PersonId.fromUInt64
 
 
-createNewPerson : Cookies -> String -> Transaction ()
+createNewPerson : Cookies -> String -> Transaction PersonId
 createNewPerson _ name =
     let
+        id : PersonId
         id :=
             Seq.next personIds
+
+        () :=
+            Table.insert people
+                Security.Unrestricted
+                { id = id
+                , name = name
+                }
     in
-    insert people
-        Security.Unrestricted
-        { id = id
-        , name = name
-        }
+    Transaction.succeed id
 
 
 getPeople : Cookies -> Transaction (Rows String)
 getPeople _ =
-    access people Security.Unrestricted
+    Table.access people Security.Unrestricted
         |> R.map .name
         |> R.selectAll
+
+
+loadPersonPage : Cookies -> PersonId -> Transaction (Maybe PersonPageFlags)
+loadPersonPage _ personId =
+    let
+        maybePerson : Maybe Person
+        maybePerson :=
+            Table.access people Security.Unrestricted
+                |> R.filter (\person -> person.id == personId)
+                |> R.selectMaybe
+    in
+    maybePerson
+        |> Maybe.map PersonPageFlags
+        |> Transaction.succeed

@@ -11,6 +11,8 @@ make dev
 This requires `watchexec`. Saving an Elm file recompiles `index.html` without
 restarting Acadia. Saving an Acadia `.db` file recompiles the database modules,
 regenerates the Elm bindings, recompiles `index.html`, and restarts the server.
+If a rebuild fails, the watcher reports the compiler error and waits for the
+next save. The server starts again after the next successful rebuild.
 Refresh the browser to load the newly compiled page. Press Ctrl-C to stop both
 watchers and the server.
 

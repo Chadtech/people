@@ -1,4 +1,9 @@
-database module PersonId exposing (PersonId, fromUInt64)
+database module PersonId exposing
+    ( PersonId
+      --    , fromString
+    , fromUInt64
+      --    , toString
+    )
 
 
 type PersonId
@@ -8,3 +13,17 @@ type PersonId
 fromUInt64 : UInt64 -> PersonId
 fromUInt64 n =
     PersonId n
+
+
+
+--toString : PersonId -> String
+--toString (PersonId n) =
+--    UInt64.toString n
+--fromString : String -> Maybe PersonId
+--fromString str =
+--    case fromString str of
+--        Just n ->
+--            Just (PersonId n)
+--
+--        Nothing ->
+--            Nothing

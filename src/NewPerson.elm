@@ -2,6 +2,7 @@ module NewPerson exposing
     ( Model
     , Msg
     , init
+    , setShared
     , shared
     , update
     , view
@@ -10,11 +11,13 @@ module NewPerson exposing
 import Api
 import Backend
 import Browser
-import Html.Styled as Html exposing (Html)
-import Html.Styled.Attributes as Attr
+import Css
+import Html.Styled as H
+import Html.Styled.Attributes as A
 import Html.Styled.Events as Event
+import PersonId exposing (PersonId)
 import Shared
-import Style
+import Style as S
 import View.Button as Button
 import View.TextField as TextField
 
@@ -35,9 +38,9 @@ type Status
 
 
 type Msg
-    = ChangedNewPerson String
+    = UpdatedNewPersonNameField String
     | SubmittedPerson
-    | AddedPerson (Maybe ())
+    | CreatedNewPerson (Maybe PersonId)
     | GotPeople (Maybe (List String))
 
 
@@ -57,6 +60,11 @@ shared model =
     model.shared
 
 
+setShared : Shared.Model -> Model -> Model
+setShared sharedModel model =
+    { model | shared = sharedModel }
+
+
 getPeople : Cmd Msg
 getPeople =
     Api.attempt GotPeople Backend.getPeople
@@ -65,7 +73,7 @@ getPeople =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        ChangedNewPerson newPerson ->
+        UpdatedNewPersonNameField newPerson ->
             ( { model | newPerson = newPerson }, Cmd.none )
 
         SubmittedPerson ->
@@ -78,15 +86,15 @@ update msg model =
 
             else
                 ( { model | status = Saving }
-                , Api.attempt AddedPerson (Backend.createNewPerson person)
+                , Api.attempt CreatedNewPerson (Backend.createNewPerson person)
                 )
 
-        AddedPerson (Just ()) ->
+        CreatedNewPerson (Just personId) ->
             ( { model | newPerson = "", status = Loading }
             , getPeople
             )
 
-        AddedPerson Nothing ->
+        CreatedNewPerson Nothing ->
             ( { model | status = Failed "Acadia could not save that person." }
             , Cmd.none
             )
@@ -105,67 +113,110 @@ update msg model =
 view : Model -> Browser.Document Msg
 view model =
     { title = "New person"
-    , body = [ page model |> Html.toUnstyled ]
+    , body = [ page model |> H.toUnstyled ]
     }
 
 
-page : Model -> Html Msg
+page : Model -> H.Html Msg
 page model =
-    Html.div
-        [ Attr.css
-            [ Style.bgNightwood0
-            , Style.hFullViewport
-            , Style.justifyCenter
-            , Style.row
-            , Style.textGray5
-            , Style.wFull
+    H.div
+        [ A.css
+            [ Css.property "box-sizing" "border-box"
+            , Css.minHeight (Css.vh 100)
+            , S.justifyCenter
+            , S.p4
+            , S.row
+            , S.wFull
             ]
         ]
-        [ Html.div
-            [ Attr.css
-                [ Style.maxW32
-                , Style.px4
-                , Style.py16
-                , Style.wFull
+        [ H.div
+            [ A.css
+                [ S.bgGray1
+                , Css.maxWidth (Css.rem 42)
+                , S.outdent
+                , S.p2
+                , S.wFull
                 ]
             ]
-            [ Html.h1 [ Attr.css [ Style.fontBold, Style.mb4, Style.text4xl ] ] [ Html.text "New person" ]
-            , Html.form [ Attr.css [ Style.g2, Style.row ], Event.onSubmit SubmittedPerson ]
-                [ Html.div [ Attr.css [ Style.flex1, Style.minW0 ] ]
-                    [ TextField.simple model.newPerson ChangedNewPerson
-                        |> TextField.toHtml
+            [ H.h1
+                [ A.css
+                    [ S.bgNightwood1
+                    , S.fontBold
+                    , S.indent
+                    , S.m0
+                    , S.p2
+                    , S.px3
+                    , S.textLg
+                    , S.textGray4
                     ]
-                , Button.primary
-                    (if model.status == Saving then
-                        "Saving..."
-
-                     else
-                        "Add"
-                    )
-                    SubmittedPerson
-                    |> Button.toHtml
                 ]
-            , statusView model.status
-            , Html.ul [ Attr.css [ Style.p0 ] ]
-                (List.map
-                    (\person -> Html.li [ Attr.css [ Style.py1 ] ] [ Html.text person ])
-                    model.people
-                )
+                [ H.text "New person" ]
+            , H.div [ A.css [ S.p3 ] ]
+                [ H.form
+                    [ A.css
+                        [ S.bgNightwood1
+                        , S.g2
+                        , S.indent
+                        , S.p3
+                        , S.row
+                        ]
+                    , Event.onSubmit SubmittedPerson
+                    ]
+                    [ H.div [ A.css [ S.flex1, S.minW0 ] ]
+                        [ TextField.simple model.newPerson UpdatedNewPersonNameField
+                            |> TextField.toHtml
+                        ]
+                    , Button.primary
+                        (if model.status == Saving then
+                            "Saving..."
+
+                         else
+                            "Add"
+                        )
+                        SubmittedPerson
+                        |> Button.toHtml
+                    ]
+                , statusView model.status
+                , H.ul
+                    [ A.css
+                        [ S.bgNightwood1
+                        , S.indent
+                        , S.m0
+                        , S.p2
+                        , Css.property "list-style" "none"
+                        , Css.property "min-height" "7rem"
+                        ]
+                    ]
+                    (List.map personRow model.people)
+                ]
             ]
         ]
 
 
-statusView : Status -> Html.Html msg
+personRow : String -> H.Html msg
+personRow person =
+    H.li
+        [ A.css
+            [ S.p2
+            , S.px3
+            , S.textGray4
+            , Css.pseudoClass "nth-child(even)" [ S.bgNightwood2 ]
+            ]
+        ]
+        [ H.text person ]
+
+
+statusView : Status -> H.Html msg
 statusView status =
     case status of
         Loading ->
-            Html.p [] [ Html.text "Loading from Acadia..." ]
+            H.p [ A.css [ S.textGray3, S.textSm ] ] [ H.text "Loading from Acadia..." ]
 
         Ready ->
-            Html.text ""
+            H.text ""
 
         Saving ->
-            Html.p [] [ Html.text "Writing to Acadia..." ]
+            H.p [ A.css [ S.textGray3, S.textSm ] ] [ H.text "Writing to Acadia..." ]
 
         Failed message ->
-            Html.p [ Attr.css [ Style.textRed1 ] ] [ Html.text message ]
+            H.p [ A.css [ S.textRed1 ] ] [ H.text message ]

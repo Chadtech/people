@@ -1,25 +1,52 @@
-module Route exposing (Route(..), fromUrl, toString)
+module Route exposing (Route(..), fromUrl, href, toString)
 
+import Acadia.UInt64 as UInt64
+import Html.Styled exposing (Attribute)
+import Html.Styled.Attributes as Attr
+import PersonId exposing (PersonId(..))
 import Url exposing (Url)
-import Url.Parser as Parser exposing ((</>), Parser)
+import Url.Parser as P exposing ((</>), Parser)
 
 
 type Route
     = NewPerson
+    | Person PersonId
 
 
 fromUrl : Url -> Maybe Route
 fromUrl url =
-    Parser.parse parser url
+    P.parse parser url
 
 
 toString : Route -> String
 toString route =
-    case route of
-        NewPerson ->
-            "/people/new"
+    let
+        parts : List String
+        parts =
+            case route of
+                NewPerson ->
+                    [ "person", "new" ]
+
+                Person personId ->
+                    [ "person", personIdToString personId ]
+    in
+    String.join "/" parts
+
+
+href : Route -> Attribute msg
+href route =
+    Attr.href (toString route)
+
+
+personIdToString : PersonId -> String
+personIdToString (PersonId value) =
+    UInt64.toString value
 
 
 parser : Parser (Route -> a) a
 parser =
-    Parser.map NewPerson (Parser.s "people" </> Parser.s "new")
+    P.oneOf
+        [ P.map NewPerson (P.s "person" </> P.s "new")
+
+        --, P.map Person (P.s "person" </> P.custom "personId" PersonId.fromString)
+        ]
