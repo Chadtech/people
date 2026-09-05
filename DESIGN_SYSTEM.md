@@ -73,8 +73,9 @@ Check contrast on the actual surface, especially for headers and errors.
 ### Typography
 
 All text uses the same size: 1rem, including headers, body text, controls, and
-status messages. Keep the existing font. Use spacing, weight, and darker header
-text to establish hierarchy. There is no muted-text role.
+status messages. Keep the existing font, with normal weight (400) everywhere;
+do not use bold or semibold text. Use spacing and darker header text to establish
+hierarchy. There is no muted-text role.
 
 ### Spacing and layout
 
@@ -85,6 +86,8 @@ are 4, 8, 12, and 16px; helper suffixes are not literal pixel values.
 The current shell places a sidebar alongside a flexible scrolling main area.
 Sidebar widths are 16rem expanded and 4rem collapsed. The main area uses `minW0`
 to allow its flex child to shrink. Pages use bounded content panels.
+Pages that need a full viewport minimum height apply `S.minHFullViewport`
+explicitly. Reuse the helper rather than styling page children from `Main`.
 Available responsive helpers are `md` at 768px and `lg` at 1156px.
 
 Guidelines:
@@ -101,6 +104,10 @@ Guidelines:
 `outdent` uses lighter top/left and darker bottom/right 2px borders. `indent`
 reverses them. Primary controls use the yellow `importantOutdent` and
 `importantIndent` variants. Buttons switch to inset edges while pressed.
+
+The sidebar is flush with the viewport on its top, left, and bottom, so only
+its right edge retains the bevel. Its icon-only toggle is a fixed 2rem square
+with a centered glyph in both expanded and collapsed states.
 
 Guideline: keep edges square and crisp in this theme. Add depth where it explains
 structure or interaction, and avoid surrounding every text group with a panel.
@@ -119,6 +126,8 @@ structure or interaction, and avoid surrounding every text group with a panel.
 
 Established: sidebar destinations appear as text links, with hover/focus emphasis.
 The sidebar toggle is a button because it changes interface state.
+After creating a person, show a success message with a `Route.href` link to the
+saved person so the user can choose when to open it.
 
 Guidelines for new or revised components:
 
@@ -168,8 +177,12 @@ experiment into an established preference or expand a small task into a redesign
 | Date | Status | Decision and reason |
 | --- | --- | --- |
 | 2026-09-05 | Established baseline | Recorded the existing People theme: nightwood, Fira Code with local fallbacks, beveled controls, and link-based navigation. Grounds future work in the current frontend. |
+| 2026-09-05 | Established | All text uses normal weight; removed bold labels and headings and reset browser default bold styling following user feedback. |
 | 2026-09-05 | Established | All text uses one size; headers are darker. Removed the type scale and muted-text role following user feedback. |
 | 2026-09-05 | Guideline | Added reusable layout, interaction, and verification guidance, with unresolved implementation gaps listed separately. Provides a starting point for iteration. |
+| 2026-09-05 | Established | Successful person creation shows a link to the saved person, providing an explicit next step without automatic navigation. |
+| 2026-09-05 | Established | Keep page minimum height explicit with shared `S.minHFullViewport`; user feedback rejected styling page children from `Main`. |
+| 2026-09-05 | Established | Keep the sidebar bevel only on its exposed right edge and make its toggle square, following user feedback. |
 
 For future entries: `Date | Established / Guideline / Experiment / Superseded |
 Decision, reason, and relevant component or evidence`. Update the main section

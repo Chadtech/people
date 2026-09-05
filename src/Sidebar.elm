@@ -21,6 +21,9 @@ view shared =
             , S.col
             , S.hFullViewport
             , S.outdent
+            , Css.borderTopWidth (Css.px 0)
+            , Css.borderBottomWidth (Css.px 0)
+            , Css.borderLeftWidth (Css.px 0)
             , S.shrink0
             , if shared.sidebarOpen then
                 S.w64
@@ -40,7 +43,7 @@ view shared =
                 ]
             ]
             [ if shared.sidebarOpen then
-                H.span [ A.css [ S.fontBold, S.textGray3 ] ] [ H.text "People" ]
+                H.span [ A.css [ S.textGray3 ] ] [ H.text "People" ]
 
               else
                 H.text ""
@@ -56,7 +59,13 @@ view shared =
                     [ S.bgGray1
                     , S.cursorPointer
                     , S.outdent
-                    , S.p2
+                    , S.w8
+                    , S.h8
+                    , S.shrink0
+                    , S.p0
+                    , S.row
+                    , S.itemsCenter
+                    , Css.justifyContent Css.center
                     , S.textGray4
                     , Css.active [ S.indent ]
                     , Css.focus [ S.importantOutdent, S.outlineNone ]

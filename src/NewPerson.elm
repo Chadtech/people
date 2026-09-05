@@ -8,14 +8,15 @@ module NewPerson exposing
     , update
     )
 
-import Api
 import Backend
 import Css
 import Document exposing (Document)
+import Effect as E exposing (Eff)
 import Html.Styled as H exposing (Html)
 import Html.Styled.Attributes as A
 import Html.Styled.Events as Event
 import PersonId exposing (PersonId)
+import Route
 import Shared
 import Style as S
 import View.Button as Button
@@ -32,6 +33,7 @@ type alias Model =
 type Status
     = Ready
     | Saving
+    | Created PersonId
     | Failed String
 
 
@@ -59,11 +61,11 @@ setShared sharedModel model =
     { model | shared = sharedModel }
 
 
-update : Msg -> Model -> ( Model, Cmd Msg )
+update : Msg -> Model -> ( Model, Eff Msg )
 update msg model =
     case msg of
         UpdatedNewPersonNameField newPerson ->
-            ( { model | newPerson = newPerson }, Cmd.none )
+            ( { model | newPerson = newPerson }, E.none )
 
         SubmittedPerson ->
             let
@@ -71,21 +73,21 @@ update msg model =
                     String.trim model.newPerson
             in
             if String.isEmpty person || model.status == Saving then
-                ( model, Cmd.none )
+                ( model, E.none )
 
             else
                 ( { model | status = Saving }
-                , Api.attempt CreatedNewPerson (Backend.createNewPerson person)
+                , E.attempt CreatedNewPerson (Backend.createNewPerson person)
                 )
 
         CreatedNewPerson (Just personId) ->
-            ( { model | newPerson = "", status = Ready }
-            , Cmd.none
+            ( { model | newPerson = "", status = Created personId }
+            , E.none
             )
 
         CreatedNewPerson Nothing ->
             ( { model | status = Failed "Acadia could not save that person." }
-            , Cmd.none
+            , E.none
             )
 
 
@@ -100,7 +102,7 @@ view : Model -> Html Msg
 view model =
     H.div
         [ A.css
-            [ Css.minHeight (Css.vh 100)
+            [ S.minHFullViewport
             , Css.alignItems Css.flexStart
             , S.justifyCenter
             , S.p4
@@ -119,8 +121,7 @@ view model =
             ]
             [ H.h1
                 [ A.css
-                    [ S.fontBold
-                    , S.m0
+                    [ S.m0
                     , S.p2
                     , S.px3
                     , S.textGray3
@@ -136,7 +137,7 @@ view model =
                     , Event.onSubmit SubmittedPerson
                     ]
                     [ H.label [ A.css [ S.col, S.g2, S.textGray4 ] ]
-                        [ H.span [ A.css [ S.fontBold ] ] [ H.text "Person name" ]
+                        [ H.span [] [ H.text "Person name" ]
                         , TextField.simple model.newPerson UpdatedNewPersonNameField
                             |> TextField.toHtml
                         ]
@@ -166,6 +167,21 @@ statusView status =
 
         Saving ->
             H.p [ A.css [ S.textGray4 ] ] [ H.text "Writing to Acadia..." ]
+
+        Created personId ->
+            H.p [ A.attribute "role" "status", A.css [ S.textGray4 ] ]
+                [ H.text "Person created. "
+                , H.a
+                    [ Route.href (Route.Person personId)
+                    , A.css
+                        [ S.textGray4
+                        , S.underline
+                        , S.hover [ S.textGray5 ]
+                        , Css.focus [ S.textGray5 ]
+                        ]
+                    ]
+                    [ H.text "View person" ]
+                ]
 
         Failed message ->
             H.p [ A.css [ S.textRed1 ] ] [ H.text message ]

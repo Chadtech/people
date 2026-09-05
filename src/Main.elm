@@ -1,11 +1,11 @@
 module Main exposing (main)
 
-import Api
 import Backend exposing (PersonPageFlags)
 import Browser
 import Browser.Navigation as Navigation
 import Css.Global
 import Document exposing (Document)
+import Effect as E exposing (Eff)
 import Html.Styled as H
 import Html.Styled.Attributes as A
 import NewPerson
@@ -34,16 +34,22 @@ type Msg
 main : Program () Page Msg
 main =
     Browser.application
-        { init = init
+        { init =
+            \flags url key ->
+                init flags url key
+                    |> Tuple.mapSecond (E.toCmd key)
         , onUrlChange = ChangesRoute << Route.fromUrl
         , onUrlRequest = ClickedLink
-        , update = update
+        , update =
+            \msg page ->
+                update msg page
+                    |> Tuple.mapSecond (E.toCmd (getShared page).key)
         , subscriptions = always Sub.none
         , view = view
         }
 
 
-init : () -> Url -> Navigation.Key -> ( Page, Cmd Msg )
+init : () -> Url -> Navigation.Key -> ( Page, Eff Msg )
 init _ url key =
     handleRouteChange (Route.fromUrl url) (Shared.init key)
 
@@ -74,33 +80,33 @@ setShared sharedModel page =
             PageNotFound sharedModel
 
 
-handleRouteChange : Maybe Route -> Shared.Model -> ( Page, Cmd Msg )
+handleRouteChange : Maybe Route -> Shared.Model -> ( Page, Eff Msg )
 handleRouteChange maybeRoute sharedModel =
     case maybeRoute of
         Just Route.NewPerson ->
             ( NewPerson <| NewPerson.init sharedModel
-            , Cmd.none
+            , E.none
             )
 
         Just (Route.Person personId) ->
             ( PageNotFound sharedModel
-            , Api.attempt LoadedPersonPage (Backend.loadPersonPage personId)
+            , E.attempt LoadedPersonPage (Backend.loadPersonPage personId)
             )
 
         Nothing ->
-            ( PageNotFound sharedModel, Cmd.none )
+            ( PageNotFound sharedModel, E.none )
 
 
-update : Msg -> Page -> ( Page, Cmd Msg )
+update : Msg -> Page -> ( Page, Eff Msg )
 update msg page =
     case msg of
         ClickedLink urlRequest ->
             case urlRequest of
                 Browser.Internal url ->
-                    ( page, Navigation.pushUrl (getShared page).key (Url.toString url) )
+                    ( page, E.pushUrl (Url.toString url) )
 
                 Browser.External url ->
-                    ( page, Navigation.load url )
+                    ( page, E.load url )
 
         ChangesRoute maybeRoute ->
             handleRouteChange maybeRoute (getShared page)
@@ -109,7 +115,7 @@ update msg page =
             case sidebarMsg of
                 Sidebar.OpenToggleClicked ->
                     ( setShared (Shared.toggleSidebar (getShared page)) page
-                    , Cmd.none
+                    , E.none
                     )
 
         NewPersonMsg newPersonMsg ->
@@ -117,21 +123,21 @@ update msg page =
                 NewPerson newPersonModel ->
                     NewPerson.update newPersonMsg newPersonModel
                         |> Tuple.mapFirst NewPerson
-                        |> Tuple.mapSecond (Cmd.map NewPersonMsg)
+                        |> Tuple.mapSecond (E.map NewPersonMsg)
 
                 _ ->
-                    ( page, Cmd.none )
+                    ( page, E.none )
 
         LoadedPersonPage maybePersonPageFlags ->
             case maybePersonPageFlags of
                 Just (Just flags) ->
                     ( Person <| Person.init (getShared page) flags
-                    , Cmd.none
+                    , E.none
                     )
 
                 _ ->
                     ( PageNotFound (getShared page)
-                    , Cmd.none
+                    , E.none
                     )
 
 

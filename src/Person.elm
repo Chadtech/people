@@ -9,8 +9,8 @@ module Person exposing
     )
 
 import Backend exposing (Person, PersonPageFlags)
-import Css
 import Document exposing (Document)
+import Effect exposing (Eff)
 import Html.Styled as H
 import Html.Styled.Attributes as A
 import PersonId.Util as PersonIdUtil
@@ -45,11 +45,11 @@ setShared sharedModel model =
     { model | shared = sharedModel }
 
 
-update : Msg -> Model -> ( Model, Cmd Msg )
+update : Msg -> Model -> ( Model, Eff Msg )
 update msg model =
     case msg of
         NoMsgYet ->
-            ( model, Cmd.none )
+            ( model, Effect.none )
 
 
 view : Model -> Document msg
@@ -63,7 +63,7 @@ page : Model -> H.Html msg
 page model =
     H.div
         [ A.css
-            [ Css.minHeight (Css.vh 100)
+            [ S.minHFullViewport
             , S.justifyCenter
             , S.p4
             , S.row
@@ -81,8 +81,7 @@ page model =
             ]
             [ H.h1
                 [ A.css
-                    [ S.fontBold
-                    , S.m0
+                    [ S.m0
                     , S.p2
                     , S.px3
                     , S.textGray3
@@ -106,6 +105,6 @@ page model =
 detail : String -> String -> H.Html msg
 detail label value =
     H.div [ A.css [ S.g2, S.p2, S.row ] ]
-        [ H.dt [ A.css [ S.fontBold, S.textGray3 ] ] [ H.text label ]
+        [ H.dt [ A.css [ S.textGray3 ] ] [ H.text label ]
         , H.dd [ A.css [ S.m0, S.textGray4 ] ] [ H.text value ]
         ]

@@ -1,3 +1,9 @@
+# Code style
+
+Read [CODE_STYLE.md](CODE_STYLE.md) before writing or changing Elm code. Follow
+its import aliases, type qualification, qualified function conventions, and
+event-based message naming rules.
+
 # Frontend design
 
 Read [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) before designing or changing web UI in

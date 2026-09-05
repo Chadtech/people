@@ -2,6 +2,9 @@
 
 A small Elm UI backed by the Acadia endpoints in `src/Backend.db`.
 
+The [code style guide](CODE_STYLE.md) defines Elm import aliases and qualification
+rules.
+
 The [design system](DESIGN_SYSTEM.md) records our visual conventions, component
 guidelines, and evolving design decisions. Update it as we refine the frontend.
 

@@ -49,13 +49,8 @@ module Style exposing
     , flexP3
     , flexP4
     , flexP5
-    , fontBold
     , fontItalic
     , fontMonospace
-    , fontWeight1000
-    , fontWeight300
-    , fontWeight500
-    , fontWeight600
     , g0p5
     , g1
     , g2
@@ -122,6 +117,7 @@ module Style exposing
     , md
     , minH0
     , minH32
+    , minHFullViewport
     , minW0
     , minW16
     , minW72
@@ -294,6 +290,7 @@ global =
         [ Css.property "box-sizing" "border-box"
         , Css.property "font-size" "inherit"
         , Css.property "font-family" "inherit"
+        , Css.fontWeight Css.normal
         ]
     , Css.Global.selector "html"
         [ Css.fontSize (Css.rem 1)
@@ -918,6 +915,11 @@ minH32 =
     Css.minHeight s32
 
 
+minHFullViewport : Css.Style
+minHFullViewport =
+    Css.minHeight (Css.vh 100)
+
+
 minW0 : Css.Style
 minW0 =
     Css.minWidth Css.zero
@@ -1460,31 +1462,6 @@ fontMonospace =
         , "Liberation Mono"
         ]
         Css.monospace
-
-
-fontWeight1000 : Css.Style
-fontWeight1000 =
-    Css.fontWeight (Css.int 1000)
-
-
-fontWeight600 : Css.Style
-fontWeight600 =
-    Css.fontWeight (Css.int 600)
-
-
-fontWeight500 : Css.Style
-fontWeight500 =
-    Css.fontWeight (Css.int 500)
-
-
-fontWeight300 : Css.Style
-fontWeight300 =
-    Css.fontWeight (Css.int 300)
-
-
-fontBold : Css.Style
-fontBold =
-    Css.fontWeight Css.bold
 
 
 uppercase : Css.Style
