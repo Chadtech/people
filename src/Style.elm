@@ -220,8 +220,6 @@ module Style exposing
     , shrink0
     , squareBL
     , squareBR
-    , text2xl
-    , text4xl
     , textAlignCenter
     , textAlignRight
     , textBlue0
@@ -233,16 +231,9 @@ module Style exposing
     , textGray3
     , textGray4
     , textGray5
-    , textLg
-    , textMd
     , textNightwood1
     , textPrimary
     , textRed1
-    , textSm
-    , textXl
-    , textXs
-    , textXxl
-    , textXxs
     , textYellow4
     , textYellow5
     , top0
@@ -300,7 +291,17 @@ import Css.Value exposing (Supported, Value)
 global : List Css.Global.Snippet
 global =
     [ Css.Global.everything
-        [ Css.property "box-sizing" "border-box" ]
+        [ Css.property "box-sizing" "border-box"
+        , Css.property "font-size" "inherit"
+        , Css.property "font-family" "inherit"
+        ]
+    , Css.Global.selector "html"
+        [ Css.fontSize (Css.rem 1)
+        , Css.lineHeight (Css.num 1.5)
+        , fontMonospace
+        ]
+    , Css.Global.selector "h1, h2, h3, h4, h5, h6"
+        [ textGray3 ]
     ]
 
 
@@ -1489,78 +1490,6 @@ fontBold =
 uppercase : Css.Style
 uppercase =
     Css.textTransform Css.uppercase
-
-
-text4xl : Css.Style
-text4xl =
-    Css.batch
-        [ Css.fontSize <| Css.rem 2.25
-        , Css.lineHeight <| Css.rem 2.5
-        ]
-
-
-text2xl : Css.Style
-text2xl =
-    Css.batch
-        [ Css.fontSize <| Css.rem 1.5
-        , Css.lineHeight <| Css.rem 2.0
-        ]
-
-
-textSm : Css.Style
-textSm =
-    Css.batch
-        [ Css.fontSize <| Css.rem 0.875
-        , Css.lineHeight <| Css.rem 1.25
-        ]
-
-
-textMd : Css.Style
-textMd =
-    Css.batch
-        [ Css.fontSize <| Css.rem 1
-        , Css.lineHeight <| Css.rem 1.5
-        ]
-
-
-textLg : Css.Style
-textLg =
-    Css.batch
-        [ Css.fontSize <| Css.rem 1.125
-        , Css.lineHeight <| Css.rem 1.75
-        ]
-
-
-textXl : Css.Style
-textXl =
-    Css.batch
-        [ Css.fontSize <| Css.rem 1.25
-        , Css.lineHeight <| Css.rem 1.75
-        ]
-
-
-textXxl : Css.Style
-textXxl =
-    Css.batch
-        [ Css.fontSize <| Css.rem 1.5
-        , Css.lineHeight <| Css.rem 2.0
-        ]
-
-
-textXs : Css.Style
-textXs =
-    Css.batch
-        [ Css.fontSize <| Css.rem 0.75
-        , Css.lineHeight <| Css.rem 1
-        ]
-
-
-textXxs : Css.Style
-textXxs =
-    Css.batch
-        [ Css.fontSize <| Css.rem 0.625
-        , Css.lineHeight <| Css.rem 0.75
-        ]
 
 
 md : List Css.Style -> Css.Style

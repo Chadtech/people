@@ -81,22 +81,17 @@ page model =
             ]
             [ H.h1
                 [ A.css
-                    [ S.bgNightwood1
-                    , S.fontBold
-                    , S.indent
+                    [ S.fontBold
                     , S.m0
                     , S.p2
                     , S.px3
-                    , S.textLg
-                    , S.textGray4
+                    , S.textGray3
                     ]
                 ]
                 [ H.text model.person.name ]
             , H.dl
                 [ A.css
-                    [ S.bgNightwood1
-                    , S.indent
-                    , S.m0
+                    [ S.m0
                     , S.m2
                     , S.p3
                     ]

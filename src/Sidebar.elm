@@ -31,9 +31,7 @@ view shared =
         ]
         [ H.header
             [ A.css
-                [ S.bgNightwood1
-                , S.indent
-                , S.itemsCenter
+                [ S.itemsCenter
                 , S.justifySpaceBetween
                 , S.m2
                 , S.p2
@@ -42,7 +40,7 @@ view shared =
                 ]
             ]
             [ if shared.sidebarOpen then
-                H.span [ A.css [ S.fontBold, S.textLg ] ] [ H.text "People" ]
+                H.span [ A.css [ S.fontBold, S.textGray3 ] ] [ H.text "People" ]
 
               else
                 H.text ""
@@ -60,7 +58,6 @@ view shared =
                     , S.outdent
                     , S.p2
                     , S.textGray4
-                    , S.textLg
                     , Css.active [ S.indent ]
                     , Css.focus [ S.importantOutdent, S.outlineNone ]
                     ]

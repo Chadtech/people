@@ -1,18 +1,18 @@
 module NewPerson exposing
     ( Model
     , Msg
+    , document
     , init
     , setShared
     , shared
     , update
-    , view
     )
 
 import Api
 import Backend
 import Css
 import Document exposing (Document)
-import Html.Styled as H
+import Html.Styled as H exposing (Html)
 import Html.Styled.Attributes as A
 import Html.Styled.Events as Event
 import PersonId exposing (PersonId)
@@ -24,15 +24,13 @@ import View.TextField as TextField
 
 type alias Model =
     { shared : Shared.Model
-    , people : List String
     , newPerson : String
     , status : Status
     }
 
 
 type Status
-    = Loading
-    | Ready
+    = Ready
     | Saving
     | Failed String
 
@@ -41,18 +39,14 @@ type Msg
     = UpdatedNewPersonNameField String
     | SubmittedPerson
     | CreatedNewPerson (Maybe PersonId)
-    | GotPeople (Maybe (List String))
 
 
-init : Shared.Model -> ( Model, Cmd Msg )
+init : Shared.Model -> Model
 init sharedModel =
-    ( { shared = sharedModel
-      , people = []
-      , newPerson = ""
-      , status = Loading
-      }
-    , getPeople
-    )
+    { shared = sharedModel
+    , newPerson = ""
+    , status = Ready
+    }
 
 
 shared : Model -> Shared.Model
@@ -63,11 +57,6 @@ shared model =
 setShared : Shared.Model -> Model -> Model
 setShared sharedModel model =
     { model | shared = sharedModel }
-
-
-getPeople : Cmd Msg
-getPeople =
-    Api.attempt GotPeople Backend.getPeople
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -90,8 +79,8 @@ update msg model =
                 )
 
         CreatedNewPerson (Just personId) ->
-            ( { model | newPerson = "", status = Loading }
-            , getPeople
+            ( { model | newPerson = "", status = Ready }
+            , Cmd.none
             )
 
         CreatedNewPerson Nothing ->
@@ -99,29 +88,20 @@ update msg model =
             , Cmd.none
             )
 
-        GotPeople (Just people) ->
-            ( { model | people = people, status = Ready }
-            , Cmd.none
-            )
 
-        GotPeople Nothing ->
-            ( { model | status = Failed "Could not read people from Acadia." }
-            , Cmd.none
-            )
-
-
-view : Model -> Document Msg
-view model =
+document : Model -> Document Msg
+document model =
     { title = "New person"
-    , body = [ page model ]
+    , body = [ view model ]
     }
 
 
-page : Model -> H.Html Msg
-page model =
+view : Model -> Html Msg
+view model =
     H.div
         [ A.css
             [ Css.minHeight (Css.vh 100)
+            , Css.alignItems Css.flexStart
             , S.justifyCenter
             , S.p4
             , S.row
@@ -139,83 +119,53 @@ page model =
             ]
             [ H.h1
                 [ A.css
-                    [ S.bgNightwood1
-                    , S.fontBold
-                    , S.indent
+                    [ S.fontBold
                     , S.m0
                     , S.p2
                     , S.px3
-                    , S.textLg
-                    , S.textGray4
+                    , S.textGray3
                     ]
                 ]
                 [ H.text "New person" ]
             , H.div [ A.css [ S.p3 ] ]
                 [ H.form
                     [ A.css
-                        [ S.bgNightwood1
-                        , S.g2
-                        , S.indent
-                        , S.p3
-                        , S.row
+                        [ S.g3
+                        , S.col
                         ]
                     , Event.onSubmit SubmittedPerson
                     ]
-                    [ H.div [ A.css [ S.flex1, S.minW0 ] ]
-                        [ TextField.simple model.newPerson UpdatedNewPersonNameField
+                    [ H.label [ A.css [ S.col, S.g2, S.textGray4 ] ]
+                        [ H.span [ A.css [ S.fontBold ] ] [ H.text "Person name" ]
+                        , TextField.simple model.newPerson UpdatedNewPersonNameField
                             |> TextField.toHtml
                         ]
-                    , Button.primary
-                        (if model.status == Saving then
-                            "Saving..."
+                    , H.div [ A.css [ S.row, S.justifyEnd ] ]
+                        [ Button.primary
+                            (if model.status == Saving then
+                                "Saving..."
 
-                         else
-                            "Add"
-                        )
-                        SubmittedPerson
-                        |> Button.toHtml
-                    ]
-                , statusView model.status
-                , H.ul
-                    [ A.css
-                        [ S.bgNightwood1
-                        , S.indent
-                        , S.m0
-                        , S.p2
-                        , Css.property "list-style" "none"
-                        , Css.property "min-height" "7rem"
+                             else
+                                "Add person"
+                            )
+                            SubmittedPerson
+                            |> Button.toHtml
                         ]
                     ]
-                    (List.map personRow model.people)
+                , statusView model.status
                 ]
             ]
         ]
 
 
-personRow : String -> H.Html msg
-personRow person =
-    H.li
-        [ A.css
-            [ S.p2
-            , S.px3
-            , S.textGray4
-            , Css.pseudoClass "nth-child(even)" [ S.bgNightwood2 ]
-            ]
-        ]
-        [ H.text person ]
-
-
-statusView : Status -> H.Html msg
+statusView : Status -> Html msg
 statusView status =
     case status of
-        Loading ->
-            H.p [ A.css [ S.textGray3, S.textSm ] ] [ H.text "Loading from Acadia..." ]
-
         Ready ->
             H.text ""
 
         Saving ->
-            H.p [ A.css [ S.textGray3, S.textSm ] ] [ H.text "Writing to Acadia..." ]
+            H.p [ A.css [ S.textGray4 ] ] [ H.text "Writing to Acadia..." ]
 
         Failed message ->
             H.p [ A.css [ S.textRed1 ] ] [ H.text message ]

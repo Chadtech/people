@@ -2,6 +2,9 @@
 
 A small Elm UI backed by the Acadia endpoints in `src/Backend.db`.
 
+The [design system](DESIGN_SYSTEM.md) records our visual conventions, component
+guidelines, and evolving design decisions. Update it as we refine the frontend.
+
 For development, run:
 
 ```sh

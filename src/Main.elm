@@ -45,7 +45,7 @@ main =
 
 init : () -> Url -> Navigation.Key -> ( Page, Cmd Msg )
 init _ url key =
-    changeRoute (Route.fromUrl url) (Shared.init key)
+    handleRouteChange (Route.fromUrl url) (Shared.init key)
 
 
 getShared : Page -> Shared.Model
@@ -74,13 +74,13 @@ setShared sharedModel page =
             PageNotFound sharedModel
 
 
-changeRoute : Maybe Route -> Shared.Model -> ( Page, Cmd Msg )
-changeRoute maybeRoute sharedModel =
+handleRouteChange : Maybe Route -> Shared.Model -> ( Page, Cmd Msg )
+handleRouteChange maybeRoute sharedModel =
     case maybeRoute of
         Just Route.NewPerson ->
-            NewPerson.init sharedModel
-                |> Tuple.mapFirst NewPerson
-                |> Tuple.mapSecond (Cmd.map NewPersonMsg)
+            ( NewPerson <| NewPerson.init sharedModel
+            , Cmd.none
+            )
 
         Just (Route.Person personId) ->
             ( PageNotFound sharedModel
@@ -103,7 +103,7 @@ update msg page =
                     ( page, Navigation.load url )
 
         ChangesRoute maybeRoute ->
-            changeRoute maybeRoute (getShared page)
+            handleRouteChange maybeRoute (getShared page)
 
         SidebarMsg sidebarMsg ->
             case sidebarMsg of
@@ -169,7 +169,7 @@ pageDocument : Page -> Document Msg
 pageDocument page =
     case page of
         NewPerson newPersonModel ->
-            NewPerson.view newPersonModel
+            NewPerson.document newPersonModel
                 |> Document.map NewPersonMsg
 
         Person personModel ->
