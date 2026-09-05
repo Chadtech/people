@@ -62,6 +62,7 @@ module Style exposing
     , g3
     , g4
     , g8
+    , global
     , grow
     , h0
     , h1
@@ -291,8 +292,16 @@ module Style exposing
     )
 
 import Css
+import Css.Global
 import Css.Media
 import Css.Value exposing (Supported, Value)
+
+
+global : List Css.Global.Snippet
+global =
+    [ Css.Global.everything
+        [ Css.property "box-sizing" "border-box" ]
+    ]
 
 
 nightwood0Str : String

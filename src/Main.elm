@@ -4,6 +4,8 @@ import Api
 import Backend exposing (PersonPageFlags)
 import Browser
 import Browser.Navigation as Navigation
+import Css.Global
+import Document exposing (Document)
 import Html.Styled as H
 import Html.Styled.Attributes as A
 import NewPerson
@@ -141,7 +143,8 @@ view page =
     in
     { title = document.title
     , body =
-        [ H.div
+        [ Css.Global.global S.global
+        , H.div
             [ A.css
                 [ S.bgNightwoodGrain
                 , S.fontMonospace
@@ -155,19 +158,19 @@ view page =
                 |> H.map SidebarMsg
             , H.main_
                 [ A.css [ S.flex1, S.minW0, S.overflowAuto ] ]
-                (List.map H.fromUnstyled document.body)
+                document.body
             ]
-            |> H.toUnstyled
         ]
     }
+        |> Document.toBrowserDocument
 
 
-pageDocument : Page -> Browser.Document Msg
+pageDocument : Page -> Document Msg
 pageDocument page =
     case page of
         NewPerson newPersonModel ->
             NewPerson.view newPersonModel
-                |> mapDocument NewPersonMsg
+                |> Document.map NewPersonMsg
 
         Person personModel ->
             Person.view personModel
@@ -178,16 +181,5 @@ pageDocument page =
                 [ H.main_ []
                     [ H.h1 [] [ H.text "Page not found" ]
                     ]
-                    |> H.toUnstyled
                 ]
             }
-
-
-mapDocument : (a -> msg) -> Browser.Document a -> Browser.Document msg
-mapDocument toMsg document =
-    { title = document.title
-    , body =
-        List.map
-            (H.fromUnstyled >> H.map toMsg >> H.toUnstyled)
-            document.body
-    }

@@ -10,8 +10,8 @@ module NewPerson exposing
 
 import Api
 import Backend
-import Browser
 import Css
+import Document exposing (Document)
 import Html.Styled as H
 import Html.Styled.Attributes as A
 import Html.Styled.Events as Event
@@ -110,10 +110,10 @@ update msg model =
             )
 
 
-view : Model -> Browser.Document Msg
+view : Model -> Document Msg
 view model =
     { title = "New person"
-    , body = [ page model |> H.toUnstyled ]
+    , body = [ page model ]
     }
 
 
@@ -121,8 +121,7 @@ page : Model -> H.Html Msg
 page model =
     H.div
         [ A.css
-            [ Css.property "box-sizing" "border-box"
-            , Css.minHeight (Css.vh 100)
+            [ Css.minHeight (Css.vh 100)
             , S.justifyCenter
             , S.p4
             , S.row

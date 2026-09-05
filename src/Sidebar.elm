@@ -19,7 +19,6 @@ view shared =
         [ A.css
             [ S.bgGray1
             , S.col
-            , Css.property "box-sizing" "border-box"
             , S.hFullViewport
             , S.outdent
             , S.shrink0

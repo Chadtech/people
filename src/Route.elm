@@ -1,9 +1,9 @@
 module Route exposing (Route(..), fromUrl, href, toString)
 
-import Acadia.UInt64 as UInt64
 import Html.Styled exposing (Attribute)
 import Html.Styled.Attributes as Attr
-import PersonId exposing (PersonId(..))
+import PersonId exposing (PersonId)
+import PersonId.Util as PersonIdUtil
 import Url exposing (Url)
 import Url.Parser as P exposing ((</>), Parser)
 
@@ -28,25 +28,19 @@ toString route =
                     [ "person", "new" ]
 
                 Person personId ->
-                    [ "person", personIdToString personId ]
+                    [ "person", PersonIdUtil.toString personId ]
     in
     String.join "/" parts
 
 
 href : Route -> Attribute msg
 href route =
-    Attr.href (toString route)
-
-
-personIdToString : PersonId -> String
-personIdToString (PersonId value) =
-    UInt64.toString value
+    Attr.href ("/" ++ toString route)
 
 
 parser : Parser (Route -> a) a
 parser =
     P.oneOf
         [ P.map NewPerson (P.s "person" </> P.s "new")
-
-        --, P.map Person (P.s "person" </> P.custom "personId" PersonId.fromString)
+        , P.map Person (P.s "person" </> P.custom "personId" PersonIdUtil.fromString)
         ]
