@@ -9,6 +9,7 @@ module Person exposing
     )
 
 import Backend exposing (Person, PersonPageFlags)
+import Css
 import Document exposing (Document)
 import Effect exposing (Eff)
 import Html.Styled as H
@@ -64,6 +65,7 @@ page model =
     H.div
         [ A.css
             [ S.minHFullViewport
+            , Css.alignItems Css.flexStart
             , S.justifyCenter
             , S.p4
             , S.row
@@ -73,27 +75,22 @@ page model =
         [ H.article
             [ A.css
                 [ S.bgGray1
+                , S.col
+                , S.g3
                 , S.maxW192
                 , S.outdent
-                , S.p2
+                , S.p3
                 , S.wFull
                 ]
             ]
             [ H.h1
                 [ A.css
-                    [ S.m0
-                    , S.p2
-                    , S.px3
-                    , S.textGray3
-                    ]
+                    [ S.textGray3 ]
                 ]
                 [ H.text model.person.name ]
             , H.dl
                 [ A.css
-                    [ S.m0
-                    , S.m2
-                    , S.p3
-                    ]
+                    [ S.col, S.g2 ]
                 ]
                 [ detail "Name" model.person.name
                 , detail "ID" (PersonIdUtil.toString model.person.id)
@@ -104,7 +101,7 @@ page model =
 
 detail : String -> String -> H.Html msg
 detail label value =
-    H.div [ A.css [ S.g2, S.p2, S.row ] ]
+    H.div [ A.css [ S.g2, S.row ] ]
         [ H.dt [ A.css [ S.textGray3 ] ] [ H.text label ]
-        , H.dd [ A.css [ S.m0, S.textGray4 ] ] [ H.text value ]
+        , H.dd [ A.css [ S.textGray4 ] ] [ H.text value ]
         ]

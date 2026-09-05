@@ -288,6 +288,8 @@ global : List Css.Global.Snippet
 global =
     [ Css.Global.everything
         [ Css.property "box-sizing" "border-box"
+        , Css.margin Css.zero
+        , Css.padding Css.zero
         , Css.property "font-size" "inherit"
         , Css.property "font-family" "inherit"
         , Css.fontWeight Css.normal

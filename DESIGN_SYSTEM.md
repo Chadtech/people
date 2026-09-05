@@ -79,6 +79,9 @@ hierarchy. There is no muted-text role.
 
 ### Spacing and layout
 
+All elements default to zero margin and padding through the global reset.
+Apply spacing explicitly with the shared helpers where needed.
+
 The spacing unit is 0.25rem: `p1` is 0.25rem, `p2` is 0.5rem, `p3` is 0.75rem,
 and `p4` is 1rem. Gap helpers follow the same scale. At a 16px root size these
 are 4, 8, 12, and 16px; helper suffixes are not literal pixel values.
@@ -92,6 +95,9 @@ Available responsive helpers are `md` at 768px and `lg` at 1156px.
 
 Guidelines:
 
+- Give each content panel one padding inset; headings, forms, and detail rows
+  inside it use container gaps instead of adding more padding. Keep the page's
+  outer gutter and controls' internal padding separate from content spacing.
 - Use small gaps within a group and larger gaps between groups.
 - Keep panel geometry stable as labels, status messages, and content change.
 - Allow long names and values to wrap where useful. If truncating, provide a
@@ -183,6 +189,8 @@ experiment into an established preference or expand a small task into a redesign
 | 2026-09-05 | Established | Successful person creation shows a link to the saved person, providing an explicit next step without automatic navigation. |
 | 2026-09-05 | Established | Keep page minimum height explicit with shared `S.minHFullViewport`; user feedback rejected styling page children from `Main`. |
 | 2026-09-05 | Established | Keep the sidebar bevel only on its exposed right edge and make its toggle square, following user feedback. |
+| 2026-09-05 | Established | Reset margin and padding to zero globally; spacing is explicit, following user feedback. |
+| 2026-09-05 | Established | Person and NewPerson use one panel inset and gaps between content groups; removed stacked heading, wrapper, and row padding after user feedback about confusing spacing. |
 
 For future entries: `Date | Established / Guideline / Experiment / Superseded |
 Decision, reason, and relevant component or evidence`. Update the main section

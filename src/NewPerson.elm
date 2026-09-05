@@ -113,22 +113,20 @@ view model =
         [ H.div
             [ A.css
                 [ S.bgGray1
+                , S.col
+                , S.g3
                 , Css.maxWidth (Css.rem 42)
                 , S.outdent
-                , S.p2
+                , S.p3
                 , S.wFull
                 ]
             ]
             [ H.h1
                 [ A.css
-                    [ S.m0
-                    , S.p2
-                    , S.px3
-                    , S.textGray3
-                    ]
+                    [ S.textGray3 ]
                 ]
                 [ H.text "New person" ]
-            , H.div [ A.css [ S.p3 ] ]
+            , H.div [ A.css [ S.col, S.g3 ] ]
                 [ H.form
                     [ A.css
                         [ S.g3
