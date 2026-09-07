@@ -144,6 +144,9 @@ structure or interaction, and avoid surrounding every text group with a panel.
 Established: all navigation links use `S.link`: light blue with a persistent
 underline, brighter hover/focus text, and a visible keyboard focus outline.
 Apply the shared helper to sidebar, list, inline, and back-navigation anchors.
+Sidebar navigation items are text-only links. Collapsing the sidebar hides the
+whole navigation list, leaving its toggle available. Decide expanded or collapsed
+content at the sidebar level; individual links do not depend on open state.
 The sidebar toggle is a button because it changes interface state.
 AllPersons lists names alphabetically as text links to person pages, with long
 names wrapping inside the panel. Loading, empty, and failed requests have distinct
@@ -223,6 +226,7 @@ experiment into an established preference or expand a small task into a redesign
 
 | Date | Status | Decision and reason |
 | --- | --- | --- |
+| 2026-09-07 | Established | Removed sidebar navigation icons following user feedback. Render the navigation list only in the expanded sidebar and keep the open-state decision at the sidebar level. |
 | 2026-09-07 | Established | Give all links a shared light-blue, underlined treatment with brighter hover/focus and a focus outline, following feedback that links were hard to recognize. |
 | 2026-09-07 | Established | Use available page width, content-sized action buttons, consistent form gaps, and an inset select chevron following screenshot feedback. |
 | 2026-09-07 | Established | Split conversation browsing and detail into AllConversations and ConversationPage, keeping creation with the list and existing URLs intact. |
