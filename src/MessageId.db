@@ -1,0 +1,15 @@
+database module MessageId exposing (MessageId, fromUInt64, toUInt64)
+
+
+type MessageId
+    = MessageId UInt64
+
+
+fromUInt64 : UInt64 -> MessageId
+fromUInt64 value =
+    MessageId value
+
+
+toUInt64 : MessageId -> UInt64
+toUInt64 (MessageId value) =
+    value

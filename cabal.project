@@ -1,0 +1,2 @@
+packages: server
+with-compiler: ghc-9.8.4

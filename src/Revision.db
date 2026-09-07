@@ -1,0 +1,10 @@
+database module Revision exposing (Revision(..), nextRevision)
+
+
+type Revision
+    = Revision UInt64
+
+
+nextRevision : Revision -> Revision
+nextRevision (Revision value) =
+    Revision (value + 1)

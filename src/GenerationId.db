@@ -1,0 +1,15 @@
+database module GenerationId exposing (GenerationId, fromUInt64, toUInt64)
+
+
+type GenerationId
+    = GenerationId UInt64
+
+
+fromUInt64 : UInt64 -> GenerationId
+fromUInt64 value =
+    GenerationId value
+
+
+toUInt64 : GenerationId -> UInt64
+toUInt64 (GenerationId value) =
+    value

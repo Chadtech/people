@@ -39,7 +39,7 @@ watchexec \
     --exts db \
     --shell none \
     -- \
-    sh -c 'acadia make --gen-elm=generated && elm make src/Main.elm && exec acadia serve --html=index.html' &
+    sh -c 'acadia make --gen-elm=generated --gen-haskell=server/generated && elm make src/Main.elm && exec acadia serve --html=index.html' &
 backend_pid=$!
 
 echo "Watching Elm sources; .elm saves recompile the page without restarting Acadia."

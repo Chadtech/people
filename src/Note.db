@@ -1,0 +1,5 @@
+database module Note exposing (Note(..))
+
+
+type Note
+    = Note String

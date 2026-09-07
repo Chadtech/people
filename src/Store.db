@@ -1,0 +1,80 @@
+database module Store exposing (ensure, require, update, updateString)
+
+import Rows as R
+import Security
+import Table exposing (Table)
+
+
+{-| Acadia 0.3.0's SQLite UPDATE does not enforce the documented one-row
+requirement. Check explicitly inside the same transaction before writing.
+-}
+require : Table Security.Unrestricted rowless -> (rowless -> Bool) -> Transaction rowless
+require table predicate =
+    let
+        found : Maybe rowless
+        found :=
+            Table.access table Security.Unrestricted
+                |> R.filter predicate
+                |> R.selectMaybe
+    in
+    case found of
+        Just row ->
+            Transaction.succeed row
+
+        Nothing ->
+            Transaction.fail
+
+
+update :
+    Table Security.Unrestricted rowless
+    -> (rowless -> Bool)
+    -> (rowless -> rowless)
+    -> Transaction ()
+update table predicate change =
+    let
+        found : Maybe rowless
+        found :=
+            Table.access table Security.Unrestricted
+                |> R.filter predicate
+                |> R.selectMaybe
+    in
+    case found of
+        Just row ->
+            Table.update table Security.Unrestricted predicate change
+
+        Nothing ->
+            Transaction.fail
+
+
+ensure : Table Security.Unrestricted row -> (row -> Bool) -> Transaction ()
+ensure table predicate =
+    let
+        present : Maybe Bool
+        present :=
+            Table.access table Security.Unrestricted
+                |> R.filter predicate
+                |> R.map (\_ -> True)
+                |> R.selectMaybe
+    in
+    if present == Just True then
+        Transaction.succeed ()
+
+    else
+        Transaction.fail
+
+
+{-| Empty endpoint strings can be bound as SQL NULL by Acadia 0.3.0.
+Keep the branch outside Table.update so the empty case contains a literal.
+-}
+updateString :
+    Table Security.Unrestricted row
+    -> (row -> Bool)
+    -> (String -> row -> row)
+    -> String
+    -> Transaction ()
+updateString table predicate change value =
+    if value == "" then
+        Table.update table Security.Unrestricted predicate (change "")
+
+    else
+        Table.update table Security.Unrestricted predicate (change value)

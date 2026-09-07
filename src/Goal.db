@@ -1,0 +1,98 @@
+database module Goal exposing
+    ( Goal
+    , GoalStatus(..)
+    , completeGoal
+    , insertGoal
+    , endpoint createGoal
+    , endpoint getGoals
+    , endpoint setGoalStatus
+    )
+
+import Cookies exposing (Cookies)
+import GoalDescription exposing (GoalDescription(..))
+import GoalId exposing (GoalId)
+import Origin exposing (Origin(..))
+import Person
+import PersonId exposing (PersonId)
+import Rows as R exposing (Rows)
+import Security
+import Sequence as Seq exposing (Sequence)
+import Store
+import Table exposing (Table)
+
+
+type GoalStatus
+    = Active
+    | Completed
+    | Abandoned
+
+
+type alias Goal =
+    { id : GoalId
+    , personId : PersonId
+    , description : GoalDescription
+    , status : GoalStatus
+    , source : Origin
+    }
+
+
+goals : Table Security.Unrestricted Goal
+goals :=
+    Table.table
+        { primary = .id
+        , security = Security.unrestricted
+        , indexes = [ Table.btree Table.NotUnique .personId ]
+        , constraints = []
+        }
+
+
+goalIds : Sequence GoalId
+goalIds :=
+    Seq.uint64 GoalId.fromUInt64
+
+
+getGoals : Cookies -> PersonId -> Transaction (Rows Goal)
+getGoals _ personId =
+    Table.access goals Security.Unrestricted
+        |> R.filter (\row -> row.personId == personId)
+        |> R.selectAll
+
+
+createGoal : Cookies -> PersonId -> GoalDescription -> Transaction ()
+createGoal _ personId description =
+    insertGoal personId description Curated
+
+
+insertGoal : PersonId -> GoalDescription -> Origin -> Transaction ()
+insertGoal personId description source =
+    let
+        person : Person.Person
+        person :=
+            Person.requirePerson personId
+
+        id : GoalId
+        id :=
+            Seq.next goalIds
+    in
+    Table.insert goals
+        Security.Unrestricted
+        { id = id
+        , personId = personId
+        , description = description
+        , status = Active
+        , source = source
+        }
+
+
+setGoalStatus : Cookies -> PersonId -> GoalId -> GoalStatus -> Transaction ()
+setGoalStatus _ personId id status =
+    Store.update goals
+        (\row -> row.id == id && row.personId == personId)
+        (\row -> { row | status = status })
+
+
+completeGoal : PersonId -> GoalId -> Transaction ()
+completeGoal personId id =
+    Store.update goals
+        (\row -> row.id == id && row.personId == personId && row.status == Active)
+        (\row -> { row | status = Completed })

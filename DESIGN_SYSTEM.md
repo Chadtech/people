@@ -91,6 +91,8 @@ Sidebar widths are 16rem expanded and 4rem collapsed. The main area uses `minW0`
 to allow its flex child to shrink. Pages use bounded content panels.
 Pages that need a full viewport minimum height apply `S.minHFullViewport`
 explicitly. Reuse the helper rather than styling page children from `Main`.
+Use Tailwind-inspired names for reusable layout utilities: `S.flexWrap` maps
+to `flex-wrap: wrap`. Keep repeated CSS primitives in `Style`.
 Available responsive helpers are `md` at 768px and `lg` at 1156px.
 
 Guidelines:
@@ -132,8 +134,31 @@ structure or interaction, and avoid surrounding every text group with a panel.
 
 Established: sidebar destinations appear as text links, with hover/focus emphasis.
 The sidebar toggle is a button because it changes interface state.
+AllPersons lists names alphabetically as text links to person pages, with long
+names wrapping inside the panel. Loading, empty, and failed requests have distinct
+states; the empty state links to person creation and failures offer a retry.
+Temporary development fixtures use one backend request alongside normal page
+initialization; the backend remembers whether the data has already been filled. They do not introduce a setup page or block navigation.
 After creating a person, show a success message with a `Route.href` link to the
 saved person so the user can choose when to open it.
+
+Person goals and memories share the existing panel surface. A borderless native
+fieldset disables related controls while saving. Keep human-entered records and
+AI reflections visibly attributed; retired memories remain inspectable with an
+explicit status. Clear only the successfully submitted draft and preserve other
+drafts. Goals can be completed, abandoned, and reopened.
+
+Conversation autonomy is opt-in. Show its current interval and paid-call behavior
+beside the controls. Stop cancels the active turn and disables autonomy; the
+resulting state remains visible after page reload.
+
+Note history loads on request and uses disclosure controls for earlier revisions.
+Label each revision with its AI author and originating turn, keeping old content
+on the existing panel surface. Prompt snapshots also load on request inside a
+turn disclosure, so routine status refreshes do not reload large inspection data.
+Render prompt inputs as attributed text with their selection reasons. Keep
+excluded inputs and the exact serialized request in separate disclosures, so
+the readable view preserves access to the original saved evidence.
 
 Guidelines for new or revised components:
 
@@ -182,7 +207,11 @@ experiment into an established preference or expand a small task into a redesign
 
 | Date | Status | Decision and reason |
 | --- | --- | --- |
+| 2026-09-07 | Established | Use `S.flexWrap` and Tailwind-inspired names for shared layout utilities. Keep page subsections in their owning Elm page. |
 | 2026-09-05 | Established baseline | Recorded the existing People theme: nightwood, Fira Code with local fallbacks, beveled controls, and link-based navigation. Grounds future work in the current frontend. |
+| 2026-09-06 | Experiment | Shared-note revisions load on request and expand individually, with author and turn attribution. Keeps earlier AI contributions inspectable without expanding every note. |
+| 2026-09-06 | Experiment | Conversation autonomy shows explicit on/off state, interval, and call cost behavior. Browser-verified enable, reload, and Stop. |
+| 2026-09-06 | Experiment | Person goals and memories use attributed records and a borderless disabled fieldset for pending edits. Browser-verified creation, completion, and keyboard retirement; narrow use currently requires collapsing the sidebar. |
 | 2026-09-05 | Established | All text uses normal weight; removed bold labels and headings and reset browser default bold styling following user feedback. |
 | 2026-09-05 | Established | All text uses one size; headers are darker. Removed the type scale and muted-text role following user feedback. |
 | 2026-09-05 | Guideline | Added reusable layout, interaction, and verification guidance, with unresolved implementation gaps listed separately. Provides a starting point for iteration. |
@@ -190,7 +219,10 @@ experiment into an established preference or expand a small task into a redesign
 | 2026-09-05 | Established | Keep page minimum height explicit with shared `S.minHFullViewport`; user feedback rejected styling page children from `Main`. |
 | 2026-09-05 | Established | Keep the sidebar bevel only on its exposed right edge and make its toggle square, following user feedback. |
 | 2026-09-05 | Established | Reset margin and padding to zero globally; spacing is explicit, following user feedback. |
+| 2026-09-05 | Established | AllPersons uses a compact alphabetical list of person links, with wrapping names and distinct loading, empty, and retry states. Reuses the page panel and navigation conventions. |
 | 2026-09-05 | Established | Person and NewPerson use one panel inset and gaps between content groups; removed stacked heading, wrapper, and row padding after user feedback about confusing spacing. |
+
+| 2026-09-05 | Experiment | Development fixtures use one idempotent backend request from Main.init, with no dedicated page or startup gate. The backend remembers completion to prevent duplicates on reload. |
 
 For future entries: `Date | Established / Guideline / Experiment / Superseded |
 Decision, reason, and relevant component or evidence`. Update the main section

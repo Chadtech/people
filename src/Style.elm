@@ -49,6 +49,7 @@ module Style exposing
     , flexP3
     , flexP4
     , flexP5
+    , flexWrap
     , fontItalic
     , fontMonospace
     , g0p5
@@ -2013,3 +2014,8 @@ underline =
 capitalize : Css.Style
 capitalize =
     Css.textTransform Css.capitalize
+
+
+flexWrap : Css.Style
+flexWrap =
+    Css.flexWrap Css.wrap

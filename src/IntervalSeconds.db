@@ -1,0 +1,10 @@
+database module IntervalSeconds exposing (IntervalSeconds(..), intervalValue)
+
+
+type IntervalSeconds
+    = IntervalSeconds UInt64
+
+
+intervalValue : IntervalSeconds -> UInt64
+intervalValue (IntervalSeconds value) =
+    value

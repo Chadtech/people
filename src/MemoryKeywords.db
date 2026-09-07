@@ -1,0 +1,5 @@
+database module MemoryKeywords exposing (MemoryKeywords(..))
+
+
+type MemoryKeywords
+    = MemoryKeywords String

@@ -1,0 +1,5 @@
+database module GenerationError exposing (GenerationError(..))
+
+
+type GenerationError
+    = GenerationError String

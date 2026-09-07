@@ -26,4 +26,8 @@ cabal.project.local~
 .idea
 acadia-stuff
 elm-stuff
+/generated/
+/server/generated/
 index.html
+/ARCHITECTURE.md
+/.env.local

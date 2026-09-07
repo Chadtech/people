@@ -1,0 +1,10 @@
+database module MemoryId exposing (MemoryId, fromUInt64)
+
+
+type MemoryId
+    = MemoryId UInt64
+
+
+fromUInt64 : UInt64 -> MemoryId
+fromUInt64 value =
+    MemoryId value

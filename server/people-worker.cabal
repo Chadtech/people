@@ -1,0 +1,33 @@
+cabal-version: 3.0
+name: people-worker
+version: 0.1.0.0
+build-type: Simple
+
+library
+  hs-source-dirs: src, generated
+  exposed-modules: Note, MessageContent, PromptSnapshot, GenerationError, ConversationTitle, GoalDescription, MemoryContent, MemoryKeywords, Revision, TurnCount, IntervalSeconds, LeaseSeconds, People.DomainInstances, People.Database, People.Prompt, People.OpenAI, People.Worker, Person, Chat, Goal, Memory, Origin, PersonId, Fixtures, GoalId, MemoryId, ConversationId, MessageId, GenerationId
+  other-modules: Acadia.Transaction, Acadia.Records,
+    Acadia.Time, Acadia.Uuid, Acadia.Password, Acadia.Result,
+    Acadia.Bytes.Encode, Acadia.Bytes.Decode
+  build-depends: base >=4.19 && <4.20, ghc-prim, bytestring, text, http-client, http-client-tls, http-types, aeson, async, time
+  default-language: Haskell2010
+  ghc-options: -Wall
+
+executable people-worker
+  hs-source-dirs: app
+  main-is: Main.hs
+  build-depends: base, people-worker, text
+  default-language: Haskell2010
+
+executable people-integration
+  hs-source-dirs: test
+  main-is: Integration.hs
+  build-depends: base, people-worker, text, aeson, async, bytestring
+  default-language: Haskell2010
+
+test-suite people-unit
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Unit.hs
+  build-depends: base, people-worker, text, bytestring, aeson
+  default-language: Haskell2010

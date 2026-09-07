@@ -1,0 +1,10 @@
+database module GoalId exposing (GoalId, fromUInt64)
+
+
+type GoalId
+    = GoalId UInt64
+
+
+fromUInt64 : UInt64 -> GoalId
+fromUInt64 value =
+    GoalId value

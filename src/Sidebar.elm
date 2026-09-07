@@ -90,6 +90,39 @@ view shared =
                     ]
                 ]
                 [ H.li []
+                    [ H.a [ Route.href Route.Conversations, A.title "Conversations", A.css [ S.block, S.p2, S.px3, S.textGray4 ] ]
+                        [ H.text
+                            (if shared.sidebarOpen then
+                                "◇    Conversations"
+
+                             else
+                                "◇"
+                            )
+                        ]
+                    ]
+                , H.li []
+                    [ H.a
+                        [ Route.href Route.AllPersons
+                        , A.title "All persons"
+                        , A.css
+                            [ S.block
+                            , S.p2
+                            , S.px3
+                            , S.textGray4
+                            , S.hover [ S.textGray5, S.underline ]
+                            , Css.focus [ S.textGray5, S.underline ]
+                            , Css.property "text-decoration" "none"
+                            ]
+                        ]
+                        [ H.span [] [ H.text "≡" ]
+                        , if shared.sidebarOpen then
+                            H.span [ A.css [ S.ml4 ] ] [ H.text "All persons" ]
+
+                          else
+                            H.text ""
+                        ]
+                    ]
+                , H.li []
                     [ H.a
                         [ Route.href Route.NewPerson
                         , A.title "New person"

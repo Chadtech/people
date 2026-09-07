@@ -1,0 +1,127 @@
+database module Person exposing
+    ( Person
+    , PersonPageFlags
+    , requirePerson
+    , endpoint createNewPerson
+    , endpoint getAllPersons
+    , endpoint loadPersonPage
+    , endpoint updatePersonIdentity
+    )
+
+import Cookies exposing (Cookies)
+import PersonId exposing (PersonId)
+import Revision exposing (Revision(..))
+import Rows as R exposing (Rows)
+import Security
+import Sequence as Seq exposing (Sequence)
+import Store
+import Table exposing (Table)
+
+
+type alias Person =
+    { id : PersonId
+    , name : String
+    , identity : String
+    , aspirations : String
+    , revision : Revision
+    }
+
+
+type alias PersonPageFlags =
+    { person : Person
+    }
+
+
+people : Table Security.Unrestricted Person
+people :=
+    Table.table
+        { primary = .id
+        , security = Security.unrestricted
+        , indexes = []
+        , constraints = []
+        }
+
+
+personIds : Sequence PersonId
+personIds :=
+    Seq.uint64 PersonId.fromUInt64
+
+
+createNewPerson : Cookies -> String -> Transaction PersonId
+createNewPerson _ name =
+    let
+        id : PersonId
+        id :=
+            Seq.next personIds
+
+        () :=
+            Table.insert people
+                Security.Unrestricted
+                { id = id
+                , name = name
+                , identity = ""
+                , aspirations = ""
+                , revision = Revision 0
+                }
+    in
+    Transaction.succeed id
+
+
+updatePersonIdentity :
+    Cookies
+    -> PersonId
+    -> Revision
+    -> String
+    -> String
+    -> Transaction PersonPageFlags
+updatePersonIdentity _ personId expectedRevision identity aspirations =
+    let
+        () :=
+            Store.update people
+                (\person -> person.id == personId && person.revision == expectedRevision)
+                (\person -> { person | revision = Revision.nextRevision person.revision })
+
+        () :=
+            Store.updateString people
+                (\person -> person.id == personId)
+                (\value person -> { person | identity = value })
+                identity
+
+        () :=
+            Store.updateString people
+                (\person -> person.id == personId)
+                (\value person -> { person | aspirations = value })
+                aspirations
+
+        savedPerson : Person
+        savedPerson :=
+            Store.require people
+                (\row -> row.id == personId)
+    in
+    Transaction.succeed { person = savedPerson }
+
+
+loadPersonPage : Cookies -> PersonId -> Transaction (Maybe PersonPageFlags)
+loadPersonPage _ personId =
+    let
+        maybePerson : Maybe Person
+        maybePerson :=
+            Table.access people Security.Unrestricted
+                |> R.filter (\person -> person.id == personId)
+                |> R.selectMaybe
+    in
+    maybePerson
+        |> Maybe.map PersonPageFlags
+        |> Transaction.succeed
+
+
+getAllPersons : Cookies -> Transaction (Rows Person)
+getAllPersons _ =
+    Table.access people Security.Unrestricted
+        |> R.selectAll
+
+
+requirePerson : PersonId -> Transaction Person
+requirePerson personId =
+    Store.require people
+        (\person -> person.id == personId)

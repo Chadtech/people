@@ -1,0 +1,5 @@
+database module ConversationTitle exposing (ConversationTitle(..))
+
+
+type ConversationTitle
+    = ConversationTitle String

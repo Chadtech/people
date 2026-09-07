@@ -1,0 +1,100 @@
+database module Memory exposing
+    ( Memory
+    , insertMemory
+    , endpoint createMemory
+    , endpoint getMemories
+    , endpoint retireMemory
+    )
+
+import Cookies exposing (Cookies)
+import MemoryContent exposing (MemoryContent(..))
+import MemoryId exposing (MemoryId)
+import MemoryKeywords exposing (MemoryKeywords(..))
+import Origin exposing (Origin(..))
+import Person
+import PersonId exposing (PersonId)
+import Rows as R exposing (Rows)
+import Security
+import Sequence as Seq exposing (Sequence)
+import Store
+import Table exposing (Table)
+
+
+type alias Memory =
+    { id : MemoryId
+    , personId : PersonId
+    , content : MemoryContent
+    , keywords : MemoryKeywords
+    , source : Origin
+    , retired : Bool
+    }
+
+
+memories : Table Security.Unrestricted Memory
+memories :=
+    Table.table
+        { primary = .id
+        , security = Security.unrestricted
+        , indexes = [ Table.btree Table.NotUnique .personId ]
+        , constraints = []
+        }
+
+
+memoryIds : Sequence MemoryId
+memoryIds :=
+    Seq.uint64 MemoryId.fromUInt64
+
+
+getMemories : Cookies -> PersonId -> Transaction (Rows Memory)
+getMemories _ personId =
+    Table.access memories Security.Unrestricted
+        |> R.filter (\row -> row.personId == personId)
+        |> R.selectAll
+
+
+createMemory : Cookies -> PersonId -> MemoryContent -> MemoryKeywords -> Transaction ()
+createMemory _ personId content keywords =
+    insertMemory personId content keywords Curated
+
+
+insertMemory : PersonId -> MemoryContent -> MemoryKeywords -> Origin -> Transaction ()
+insertMemory personId content (MemoryKeywords keywords) source =
+    let
+        person : Person.Person
+        person :=
+            Person.requirePerson personId
+
+        id : MemoryId
+        id :=
+            Seq.next memoryIds
+    in
+    if keywords == "" then
+        Table.insert memories
+            Security.Unrestricted
+            { id = id
+            , personId = personId
+            , content = content
+            , keywords =
+                MemoryKeywords ""
+            , source = source
+            , retired = False
+            }
+
+    else
+        Table.insert memories
+            Security.Unrestricted
+            { id = id
+            , personId = personId
+            , content = content
+            , keywords =
+                MemoryKeywords keywords
+            , source = source
+            , retired = False
+            }
+
+
+retireMemory : Cookies -> PersonId -> MemoryId -> Transaction ()
+retireMemory _ personId id =
+    Store.update memories
+        (\row -> row.id == id && row.personId == personId)
+        (\row -> { row | retired = True })

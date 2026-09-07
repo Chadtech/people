@@ -1,0 +1,5 @@
+database module MessageContent exposing (MessageContent(..))
+
+
+type MessageContent
+    = MessageContent String

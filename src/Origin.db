@@ -1,0 +1,8 @@
+database module Origin exposing (Origin(..))
+
+import GenerationId exposing (GenerationId)
+
+
+type Origin
+    = Curated
+    | Reflection GenerationId

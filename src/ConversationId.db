@@ -1,0 +1,15 @@
+database module ConversationId exposing (ConversationId, fromUInt64, toUInt64)
+
+
+type ConversationId
+    = ConversationId UInt64
+
+
+fromUInt64 : UInt64 -> ConversationId
+fromUInt64 value =
+    ConversationId value
+
+
+toUInt64 : ConversationId -> UInt64
+toUInt64 (ConversationId value) =
+    value

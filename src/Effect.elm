@@ -1,17 +1,22 @@
 module Effect exposing
     ( Eff
+    , and
     , attempt
     , batch
+    , fetch
     , load
     , map
     , none
     , pushUrl
     , toCmd
+    , with
+    , withOut
     )
 
 import Acadia.Transaction exposing (Transaction(..))
 import Browser.Navigation as Navigation
 import Bytes.Decode as Decode
+import Remote exposing (Remote)
 import Route exposing (Route)
 
 
@@ -32,6 +37,21 @@ none =
 batch : List (Eff msg) -> Eff msg
 batch =
     Batch
+
+
+and : Eff msg -> ( model, Eff msg ) -> ( model, Eff msg )
+and e0 ( model, e1 ) =
+    ( model, batch [ e0, e1 ] )
+
+
+with : Eff msg -> model -> ( model, Eff msg )
+with e model =
+    ( model, e )
+
+
+withOut : model -> ( model, Eff msg )
+withOut model =
+    ( model, none )
 
 
 attempt : (Maybe a -> msg) -> Transaction a -> Eff msg
@@ -102,3 +122,18 @@ toCmd key effect =
 
         PushRoute route ->
             Navigation.pushUrl key (Route.toString route)
+
+
+fetch : (Remote data -> msg) -> Transaction (Maybe data) -> Eff msg
+fetch toMsg (Transaction encoder decoder) =
+    ApiRequest
+        (toMsg Remote.Failed)
+        (Transaction encoder
+            (Decode.map
+                (Maybe.map Remote.Found
+                    >> Maybe.withDefault Remote.NotFound
+                    >> toMsg
+                )
+                decoder
+            )
+        )

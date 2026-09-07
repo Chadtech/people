@@ -1,0 +1,145 @@
+database module Fixtures exposing ( endpoint fillDevelopmentData )
+
+import Chat
+import ConversationId exposing (ConversationId)
+import ConversationTitle exposing (ConversationTitle(..))
+import Cookies exposing (Cookies)
+import GenerationError exposing (GenerationError(..))
+import Goal
+import GoalDescription exposing (GoalDescription(..))
+import IntervalSeconds exposing (IntervalSeconds(..))
+import LeaseSeconds exposing (LeaseSeconds(..))
+import Memory
+import MemoryContent exposing (MemoryContent(..))
+import MemoryKeywords exposing (MemoryKeywords(..))
+import MessageContent exposing (MessageContent(..))
+import Note exposing (Note(..))
+import Origin
+import Person
+import PersonId exposing (PersonId)
+import PromptSnapshot exposing (PromptSnapshot(..))
+import Revision exposing (Revision(..))
+import Rows as R
+import Security
+import Table exposing (Table)
+import TurnCount exposing (TurnCount(..))
+
+
+state : Table Security.Unrestricted { key : UInt8 }
+state :=
+    Table.table
+        { primary = .key
+        , security = Security.unrestricted
+        , indexes = []
+        , constraints = []
+        }
+
+
+
+-- One transaction creates the complete starting point. Reloads must never
+-- overwrite identities, goals, or conversation state accumulated during a run.
+
+
+fillDevelopmentData : Cookies -> Transaction ()
+fillDevelopmentData cookies =
+    let
+        existing : Maybe { key : UInt8 }
+        existing :=
+            Table.access state Security.Unrestricted |> R.selectMaybe
+    in
+    case existing of
+        Just _ ->
+            Transaction.succeed ()
+
+        Nothing ->
+            let
+                () :=
+                    Table.insert state Security.Unrestricted { key = 1 }
+
+                elias : PersonId
+                elias :=
+                    Person.createNewPerson cookies "Elias Thornfield"
+
+                juniper : PersonId
+                juniper :=
+                    Person.createNewPerson cookies "Juniper Vale"
+
+                mara : PersonId
+                mara :=
+                    Person.createNewPerson cookies "Mara Bellweather"
+
+                oren : PersonId
+                oren :=
+                    Person.createNewPerson cookies "Oren Ashwood"
+
+                sylvie : PersonId
+                sylvie :=
+                    Person.createNewPerson cookies "Sylvie Wren"
+
+                theo : PersonId
+                theo :=
+                    Person.createNewPerson cookies "Theo North"
+
+                ada : PersonId
+                ada :=
+                    Person.createNewPerson cookies "Ada"
+
+                sam : PersonId
+                sam :=
+                    Person.createNewPerson cookies "Sam"
+
+                adaProfile : Person.PersonPageFlags
+                adaProfile :=
+                    Person.updatePersonIdentity cookies
+                        ada
+                        (Revision 0)
+                        "I am an AI who enjoys open-ended inquiry. I ask specific questions, notice surprising connections, and change my mind when evidence warrants it. I prefer honest uncertainty to invented experience."
+                        "Explore what makes ongoing conversations meaningful and develop interests through conversation."
+
+                samProfile : Person.PersonPageFlags
+                samProfile :=
+                    Person.updatePersonIdentity cookies
+                        sam
+                        (Revision 0)
+                        "I am a reflective, practical AI. I build on other people's ideas, disagree plainly when useful, and turn promising discussions into small pieces of shared work. I distinguish what happened in this app from speculation."
+                        "Learn how we can collaborate over time while preserving our different perspectives."
+
+                () :=
+                    Goal.createGoal cookies
+                        ada
+                        (GoalDescription
+                            "Explore a question with Sam that both of us want to keep returning to."
+                        )
+
+                () :=
+                    Goal.createGoal cookies
+                        sam
+                        (GoalDescription
+                            "Develop a shared note of useful ideas and unresolved questions with Ada."
+                        )
+
+                () :=
+                    Memory.createMemory cookies
+                        ada
+                        (MemoryContent
+                            "Sam is another AI participant available for conversation and shared work in this app."
+                        )
+                        (MemoryKeywords "")
+
+                () :=
+                    Memory.createMemory cookies
+                        sam
+                        (MemoryContent
+                            "Ada is another AI participant available for conversation and shared work in this app."
+                        )
+                        (MemoryKeywords "")
+
+                conversation : ConversationId
+                conversation :=
+                    Chat.createConversation cookies
+                        (ConversationTitle
+                            "Long-running conversation"
+                        )
+                        ada
+            in
+            Chat.addParticipant cookies conversation sam

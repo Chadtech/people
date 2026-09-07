@@ -1,0 +1,5 @@
+database module PromptSnapshot exposing (PromptSnapshot(..))
+
+
+type PromptSnapshot
+    = PromptSnapshot String

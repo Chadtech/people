@@ -5,6 +5,8 @@ module Route exposing
     , toString
     )
 
+import ConversationId exposing (ConversationId)
+import ConversationId.Util as ConversationIdUtil
 import Html.Styled exposing (Attribute)
 import Html.Styled.Attributes as Attr
 import PersonId exposing (PersonId)
@@ -14,7 +16,10 @@ import Url.Parser as P exposing ((</>), Parser)
 
 
 type Route
-    = NewPerson
+    = Conversations
+    | Conversation ConversationId
+    | AllPersons
+    | NewPerson
     | Person PersonId
 
 
@@ -29,6 +34,15 @@ toString route =
         parts : List String
         parts =
             case route of
+                Conversations ->
+                    [ "conversation" ]
+
+                Conversation id ->
+                    [ "conversation", ConversationIdUtil.toString id ]
+
+                AllPersons ->
+                    [ "person", "all" ]
+
                 NewPerson ->
                     [ "person", "new" ]
 
@@ -46,6 +60,9 @@ href route =
 parser : Parser (Route -> a) a
 parser =
     P.oneOf
-        [ P.map NewPerson (P.s "person" </> P.s "new")
+        [ P.map Conversations (P.s "conversation")
+        , P.map Conversation (P.s "conversation" </> P.custom "conversationId" ConversationIdUtil.fromString)
+        , P.map AllPersons (P.s "person" </> P.s "all")
+        , P.map NewPerson (P.s "person" </> P.s "new")
         , P.map Person (P.s "person" </> P.custom "personId" PersonIdUtil.fromString)
         ]

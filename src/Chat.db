@@ -1,0 +1,703 @@
+database module Chat exposing
+    ( Conversation
+    , Generation
+    , GenerationSummary
+    , Message
+    , NoteRevision
+    , Phase(..)
+    , endpoint addParticipant
+    , endpoint claimGeneration
+    , endpoint createConversation
+    , endpoint expireGeneration
+    , endpoint failGeneration
+    , endpoint finishGeneration
+    , endpoint getConversations
+    , endpoint getExpiredGenerations
+    , endpoint getGenerationPhase
+    , endpoint getGenerationPrompt
+    , endpoint getGenerationSummaries
+    , endpoint getGenerations
+    , endpoint getMessages
+    , endpoint getNoteRevisions
+    , endpoint getParticipants
+    , endpoint getPendingGenerations
+    , endpoint getRunningGenerations
+    , endpoint getScheduledConversations
+    , endpoint requestTurn
+    , endpoint savePrompt
+    , endpoint setAutonomy
+    , endpoint setRunLength
+    , endpoint stopConversation
+    )
+
+import ConversationId exposing (ConversationId)
+import ConversationTitle exposing (ConversationTitle(..))
+import Cookies exposing (Cookies)
+import GenerationError exposing (GenerationError(..))
+import GenerationId exposing (GenerationId)
+import Goal
+import GoalDescription exposing (GoalDescription(..))
+import GoalId exposing (GoalId)
+import IntervalSeconds exposing (IntervalSeconds(..))
+import LeaseSeconds exposing (LeaseSeconds(..))
+import Memory
+import MemoryContent exposing (MemoryContent(..))
+import MemoryKeywords exposing (MemoryKeywords(..))
+import MessageContent exposing (MessageContent(..))
+import MessageId exposing (MessageId)
+import Note exposing (Note(..))
+import Origin
+import Person
+import PersonId exposing (PersonId)
+import PromptSnapshot exposing (PromptSnapshot(..))
+import Revision exposing (Revision(..))
+import Rows as R exposing (Rows)
+import Security
+import Sequence as Seq exposing (Sequence)
+import Store
+import Table exposing (Table)
+import Time exposing (Posix)
+import TurnCount exposing (TurnCount(..))
+
+
+type alias Conversation =
+    { id : ConversationId
+    , title : ConversationTitle
+    , revision : Revision
+    , activeGeneration : Maybe GenerationId
+    , remainingTurns : TurnCount
+    , note : Note
+    , autonomous : Bool
+    , intervalSeconds : IntervalSeconds
+    , nextTurnAt : Posix
+    , lastSpeaker : Maybe PersonId
+    }
+
+
+type alias Message =
+    { id : MessageId
+    , conversationId : ConversationId
+    , author : Maybe PersonId
+    , content : MessageContent
+    }
+
+
+type Phase
+    = Pending
+    | Running
+    | Completed
+    | Failed
+    | Cancelled
+
+
+type alias Generation =
+    { id : GenerationId
+    , conversationId : ConversationId
+    , speaker : PersonId
+    , phase : Phase
+    , prompt : PromptSnapshot
+    , leaseUntil : Posix
+    , error : GenerationError
+    }
+
+
+type alias NoteRevision =
+    { generationId : GenerationId
+    , conversationId : ConversationId
+    , author : PersonId
+    , content : Note
+    , createdAt : Posix
+    }
+
+
+type alias GenerationSummary =
+    { id : GenerationId
+    , speaker : PersonId
+    , phase : Phase
+    , error : GenerationError
+    }
+
+
+noteRevisions : Table Security.Unrestricted NoteRevision
+noteRevisions :=
+    Table.table
+        { primary = .generationId
+        , security = Security.unrestricted
+        , indexes = [ Table.btree Table.NotUnique .conversationId ]
+        , constraints =
+            [ Table.foreignKey .conversationId (Table.references conversations .id)
+            , Table.foreignKey .generationId (Table.references generations .id)
+            ]
+        }
+
+
+conversations : Table Security.Unrestricted Conversation
+conversations :=
+    Table.table
+        { primary = .id
+        , security = Security.unrestricted
+        , indexes = []
+        , constraints = []
+        }
+
+
+participants : Table Security.Unrestricted { conversationId : ConversationId, personId : PersonId }
+participants :=
+    Table.table
+        { primary = \row -> ( row.conversationId, row.personId )
+        , security = Security.unrestricted
+        , indexes = []
+        , constraints = [ Table.foreignKey .conversationId (Table.references conversations .id) ]
+        }
+
+
+messages : Table Security.Unrestricted Message
+messages :=
+    Table.table
+        { primary = .id
+        , security = Security.unrestricted
+        , indexes = [ Table.btree Table.NotUnique .conversationId ]
+        , constraints = [ Table.foreignKey .conversationId (Table.references conversations .id) ]
+        }
+
+
+generations : Table Security.Unrestricted Generation
+generations :=
+    Table.table
+        { primary = .id
+        , security = Security.unrestricted
+        , indexes = [ Table.btree Table.NotUnique .conversationId ]
+        , constraints = [ Table.foreignKey .conversationId (Table.references conversations .id) ]
+        }
+
+
+conversationIds : Sequence ConversationId
+conversationIds :=
+    Seq.uint64 ConversationId.fromUInt64
+
+
+messageIds : Sequence MessageId
+messageIds :=
+    Seq.uint64 MessageId.fromUInt64
+
+
+generationIds : Sequence GenerationId
+generationIds :=
+    Seq.uint64 GenerationId.fromUInt64
+
+
+createConversation :
+    Cookies
+    -> ConversationTitle
+    -> PersonId
+    -> Transaction ConversationId
+createConversation cookies title personId =
+    let
+        now : Posix
+        now :=
+            Time.now
+
+        id : ConversationId
+        id :=
+            Seq.next conversationIds
+
+        () :=
+            Table.insert conversations
+                Security.Unrestricted
+                { id = id
+                , title = title
+                , revision = Revision 0
+                , activeGeneration = Nothing
+                , remainingTurns = TurnCount 0
+                , note = Note ""
+                , lastSpeaker = Nothing
+                , autonomous = False
+                , intervalSeconds = IntervalSeconds 300
+                , nextTurnAt = now
+                }
+
+        () :=
+            addParticipant cookies id personId
+    in
+    Transaction.succeed id
+
+
+addParticipant : Cookies -> ConversationId -> PersonId -> Transaction ()
+addParticipant cookies conversationId personId =
+    let
+        person : Person.Person
+        person :=
+            Person.requirePerson personId
+
+        existing : Maybe { conversationId : ConversationId, personId : PersonId }
+        existing :=
+            Table.access participants Security.Unrestricted
+                |> R.filter (\row -> row.conversationId == conversationId && row.personId == personId)
+                |> R.selectMaybe
+    in
+    if existing /= Nothing then
+        Transaction.succeed ()
+
+    else
+        Table.insert participants
+            Security.Unrestricted
+            { conversationId = conversationId
+            , personId = personId
+            }
+
+
+getConversations : Cookies -> Transaction (Rows Conversation)
+getConversations _ =
+    Table.access conversations Security.Unrestricted |> R.selectAll
+
+
+getScheduledConversations : Cookies -> Transaction (Rows Conversation)
+getScheduledConversations _ =
+    let
+        now : Posix
+        now :=
+            Time.now
+    in
+    Table.access conversations Security.Unrestricted
+        |> R.filter (\row -> (TurnCount.hasTurns row.remainingTurns || (row.autonomous && row.nextTurnAt <= now)) && isIdle row)
+        |> R.selectAll
+
+
+getMessages : Cookies -> ConversationId -> Transaction (Rows Message)
+getMessages _ conversationId =
+    Table.access messages Security.Unrestricted
+        |> R.filter (\row -> row.conversationId == conversationId)
+        |> R.selectAll
+
+
+getParticipants : Cookies -> ConversationId -> Transaction (Rows PersonId)
+getParticipants _ conversationId =
+    Table.access participants Security.Unrestricted
+        |> R.filter (\row -> row.conversationId == conversationId)
+        |> R.map .personId
+        |> R.selectAll
+
+
+getGenerations : Cookies -> ConversationId -> Transaction (Rows Generation)
+getGenerations _ conversationId =
+    Table.access generations Security.Unrestricted
+        |> R.filter (\row -> row.conversationId == conversationId)
+        |> R.selectAll
+
+
+getGenerationSummaries :
+    Cookies
+    -> ConversationId
+    -> Transaction (Rows GenerationSummary)
+getGenerationSummaries _ conversationId =
+    Table.access generations Security.Unrestricted
+        |> R.filter (\row -> row.conversationId == conversationId)
+        |> R.map
+            (\row ->
+                { id = row.id
+                , speaker = row.speaker
+                , phase = row.phase
+                , error = row.error
+                }
+            )
+        |> R.selectAll
+
+
+getGenerationPrompt :
+    Cookies
+    -> ConversationId
+    -> GenerationId
+    -> Transaction (Maybe PromptSnapshot)
+getGenerationPrompt _ conversationId id =
+    Table.access generations Security.Unrestricted
+        |> R.filter (\row -> row.conversationId == conversationId && row.id == id)
+        |> R.map .prompt
+        |> R.selectMaybe
+
+
+getGenerationPhase : Cookies -> GenerationId -> Transaction (Maybe Phase)
+getGenerationPhase _ id =
+    Table.access generations Security.Unrestricted
+        |> R.filter (\row -> row.id == id)
+        |> R.map .phase
+        |> R.selectMaybe
+
+
+getPendingGenerations : Cookies -> Transaction (Rows Generation)
+getPendingGenerations _ =
+    Table.access generations Security.Unrestricted
+        |> R.filter (\row -> row.phase == Pending)
+        |> R.selectAll
+
+
+requestTurn :
+    Cookies
+    -> ConversationId
+    -> Revision
+    -> PersonId
+    -> MessageContent
+    -> Transaction GenerationId
+requestTurn _ conversationId expectedRevision speaker (MessageContent content) =
+    let
+        now : Posix
+        now :=
+            Time.now
+
+        id : GenerationId
+        id :=
+            Seq.next generationIds
+
+        () :=
+            Store.ensure participants
+                (\row -> row.conversationId == conversationId && row.personId == speaker)
+
+        () :=
+            Store.update conversations
+                (\row -> row.id == conversationId && row.revision == expectedRevision && isIdle row)
+                (\row ->
+                    { row
+                        | activeGeneration = Just id
+                        , revision = Revision.nextRevision row.revision
+                        , nextTurnAt = Time.plus (IntervalSeconds.intervalValue row.intervalSeconds) Time.Seconds now
+                        , remainingTurns = TurnCount.decrementTurns row.remainingTurns
+                    }
+                )
+
+        () :=
+            if content == "" then
+                Transaction.succeed ()
+
+            else
+                let
+                    messageId : MessageId
+                    messageId :=
+                        Seq.next messageIds
+                in
+                Table.insert messages
+                    Security.Unrestricted
+                    { id = messageId
+                    , conversationId = conversationId
+                    , author = Nothing
+                    , content = MessageContent content
+                    }
+
+        () :=
+            Table.insert generations
+                Security.Unrestricted
+                { id = id
+                , conversationId = conversationId
+                , speaker = speaker
+                , phase = Pending
+                , prompt = PromptSnapshot ""
+                , error = GenerationError ""
+                , leaseUntil = now
+                }
+    in
+    Transaction.succeed id
+
+
+setRunLength : Cookies -> ConversationId -> Revision -> TurnCount -> Transaction ()
+setRunLength _ conversationId expectedRevision (TurnCount turns) =
+    Store.update conversations
+        (\row -> row.id == conversationId && row.revision == expectedRevision && isIdle row)
+        (\row ->
+            { row
+                | remainingTurns = TurnCount (min 20 turns)
+                , revision = Revision.nextRevision row.revision
+            }
+        )
+
+
+claimGeneration : Cookies -> GenerationId -> LeaseSeconds -> Transaction ()
+claimGeneration _ id (LeaseSeconds leaseSeconds) =
+    let
+        now : Posix
+        now :=
+            Time.now
+    in
+    Store.update generations
+        (\row -> row.id == id && row.phase == Pending)
+        (\row ->
+            { row
+                | phase = Running
+                , leaseUntil = Time.plus (max 1 (min 180 leaseSeconds)) Time.Seconds now
+            }
+        )
+
+
+savePrompt : Cookies -> GenerationId -> PromptSnapshot -> Transaction ()
+savePrompt _ id prompt =
+    let
+        now : Posix
+        now :=
+            Time.now
+    in
+    Store.update generations
+        (\row -> row.id == id && row.phase == Running && row.leaseUntil > now)
+        (\row -> { row | prompt = prompt })
+
+
+finishGeneration :
+    Cookies
+    -> GenerationId
+    -> MessageContent
+    -> GoalDescription
+    -> MemoryContent
+    -> Maybe GoalId
+    -> Note
+    -> Transaction ()
+finishGeneration _ id content newGoal memory completedGoal (Note note) =
+    let
+        now : Posix
+        now :=
+            Time.now
+
+        generation : Generation
+        generation :=
+            Store.require generations
+                (\row -> row.id == id && row.phase == Running && row.leaseUntil > now)
+
+        messageId : MessageId
+        messageId :=
+            Seq.next messageIds
+
+        () :=
+            Store.update conversations
+                (\row -> row.id == generation.conversationId && hasGeneration id row)
+                (\row ->
+                    { row
+                        | activeGeneration = Nothing
+                        , lastSpeaker = Just generation.speaker
+                        , revision = Revision.nextRevision row.revision
+                    }
+                )
+
+        -- Keep the empty-string decision outside SQL row expressions: Acadia
+        -- 0.3.0 can bind an empty endpoint string as SQL NULL in that context.
+        () :=
+            if note == "" then
+                Transaction.succeed ()
+
+            else
+                let
+                    () :=
+                        Store.update conversations
+                            (\row -> row.id == generation.conversationId)
+                            (\row -> { row | note = Note note })
+                in
+                Table.insert noteRevisions
+                    Security.Unrestricted
+                    { generationId = id
+                    , conversationId = generation.conversationId
+                    , author = generation.speaker
+                    , content = Note note
+                    , createdAt = now
+                    }
+
+        () :=
+            Table.insert messages
+                Security.Unrestricted
+                { id = messageId
+                , conversationId = generation.conversationId
+                , author = Just generation.speaker
+                , content = content
+                }
+
+        () :=
+            recordReflection generation.speaker id newGoal memory
+
+        () :=
+            case completedGoal of
+                Nothing ->
+                    Transaction.succeed ()
+
+                Just goalId ->
+                    Goal.completeGoal generation.speaker goalId
+    in
+    Store.update generations
+        (\row -> row.id == id)
+        (\row -> { row | phase = Completed })
+
+
+failGeneration : Cookies -> GenerationId -> GenerationError -> Transaction ()
+failGeneration _ id error =
+    let
+        generation : Generation
+        generation :=
+            Store.require generations
+                (\row -> row.id == id && (row.phase == Running || row.phase == Pending))
+
+        () :=
+            Store.update conversations
+                (\row -> row.id == generation.conversationId && hasGeneration id row)
+                (\row ->
+                    { row
+                        | activeGeneration = Nothing
+                        , remainingTurns = TurnCount 0
+                        , autonomous = False
+                        , revision = Revision.nextRevision row.revision
+                    }
+                )
+    in
+    Store.update generations
+        (\row -> row.id == id)
+        (\row -> { row | phase = Failed, error = error })
+
+
+stopConversation : Cookies -> ConversationId -> Transaction ()
+stopConversation _ conversationId =
+    let
+        conversation : Conversation
+        conversation :=
+            Store.require conversations
+                (\row -> row.id == conversationId)
+
+        () :=
+            case conversation.activeGeneration of
+                Nothing ->
+                    Transaction.succeed ()
+
+                Just generationId ->
+                    Store.update generations
+                        (\row -> row.id == generationId)
+                        (\row -> { row | phase = Cancelled })
+    in
+    Store.update conversations
+        (\row -> row.id == conversationId)
+        (\row ->
+            { row
+                | activeGeneration = Nothing
+                , remainingTurns = TurnCount 0
+                , autonomous = False
+                , revision = Revision.nextRevision row.revision
+            }
+        )
+
+
+isIdle : Conversation -> Bool
+isIdle conversation =
+    case conversation.activeGeneration of
+        Nothing ->
+            True
+
+        Just _ ->
+            False
+
+
+hasGeneration : GenerationId -> Conversation -> Bool
+hasGeneration id conversation =
+    case conversation.activeGeneration of
+        Nothing ->
+            False
+
+        Just activeId ->
+            activeId == id
+
+
+getRunningGenerations : Cookies -> Transaction (Rows Generation)
+getRunningGenerations _ =
+    Table.access generations Security.Unrestricted
+        |> R.filter (\row -> row.phase == Running)
+        |> R.selectAll
+
+
+getNoteRevisions : Cookies -> ConversationId -> Transaction (Rows NoteRevision)
+getNoteRevisions _ conversationId =
+    Table.access noteRevisions Security.Unrestricted
+        |> R.filter (\row -> row.conversationId == conversationId)
+        |> R.selectAll
+
+
+
+-- Enabling autonomy is explicit. Each conversation schedules at most one turn
+-- per interval; missed intervals do not accumulate a catch-up burst.
+
+
+setAutonomy :
+    Cookies
+    -> ConversationId
+    -> Revision
+    -> Bool
+    -> IntervalSeconds
+    -> Transaction ()
+setAutonomy _ conversationId expectedRevision enabled (IntervalSeconds intervalSeconds) =
+    let
+        now : Posix
+        now :=
+            Time.now
+    in
+    Store.update conversations
+        (\row -> row.id == conversationId && row.revision == expectedRevision && isIdle row)
+        (\row ->
+            { row
+                | autonomous = enabled
+                , intervalSeconds =
+                    IntervalSeconds
+                        (max 60 (min 86400 intervalSeconds))
+                , nextTurnAt = now
+                , revision =
+                    Revision.nextRevision row.revision
+            }
+        )
+
+
+getExpiredGenerations : Cookies -> Transaction (Rows Generation)
+getExpiredGenerations _ =
+    let
+        now : Posix
+        now :=
+            Time.now
+    in
+    Table.access generations Security.Unrestricted
+        |> R.filter (\row -> row.phase == Running && row.leaseUntil <= now)
+        |> R.selectAll
+
+
+expireGeneration : Cookies -> GenerationId -> Transaction ()
+expireGeneration cookies id =
+    let
+        now : Posix
+        now :=
+            Time.now
+
+        () :=
+            Store.ensure generations
+                (\row ->
+                    row.id
+                        == id
+                        && row.phase
+                        == Running
+                        && row.leaseUntil
+                        <= now
+                )
+    in
+    failGeneration cookies
+        id
+        (GenerationError
+            "The worker did not finish before its deadline. No result was applied. Start a new turn to retry."
+        )
+
+
+recordReflection :
+    PersonId
+    -> GenerationId
+    -> GoalDescription
+    -> MemoryContent
+    -> Transaction ()
+recordReflection personId generationId (GoalDescription newGoal) (MemoryContent memory) =
+    let
+        () :=
+            if newGoal == "" then
+                Transaction.succeed ()
+
+            else
+                Goal.insertGoal personId (GoalDescription newGoal) (Origin.Reflection generationId)
+    in
+    if memory == "" then
+        Transaction.succeed ()
+
+    else
+        Memory.insertMemory personId
+            (MemoryContent memory)
+            (MemoryKeywords "")
+            (Origin.Reflection generationId)

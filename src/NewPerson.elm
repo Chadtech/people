@@ -8,7 +8,7 @@ module NewPerson exposing
     , update
     )
 
-import Backend
+import Person
 import Css
 import Document exposing (Document)
 import Effect as E exposing (Eff)
@@ -65,19 +65,24 @@ update : Msg -> Model -> ( Model, Eff Msg )
 update msg model =
     case msg of
         UpdatedNewPersonNameField newPerson ->
-            ( { model | newPerson = newPerson }, E.none )
+            ( { model | newPerson = newPerson }
+            , E.none
+            )
 
         SubmittedPerson ->
             let
-                person =
+                personName : String
+                personName =
                     String.trim model.newPerson
             in
-            if String.isEmpty person || model.status == Saving then
+            if String.isEmpty personName || model.status == Saving then
                 ( model, E.none )
 
             else
                 ( { model | status = Saving }
-                , E.attempt CreatedNewPerson (Backend.createNewPerson person)
+                , E.attempt
+                    CreatedNewPerson
+                    (Person.createNewPerson personName)
                 )
 
         CreatedNewPerson (Just personId) ->

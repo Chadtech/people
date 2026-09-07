@@ -1,0 +1,5 @@
+database module LeaseSeconds exposing (LeaseSeconds(..))
+
+
+type LeaseSeconds
+    = LeaseSeconds UInt64

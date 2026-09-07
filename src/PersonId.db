@@ -3,6 +3,7 @@ database module PersonId exposing
       --    , fromString
     , fromUInt64
       --    , toString
+    , toUInt64
     )
 
 
@@ -27,3 +28,8 @@ fromUInt64 n =
 --
 --        Nothing ->
 --            Nothing
+
+
+toUInt64 : PersonId -> UInt64
+toUInt64 (PersonId value) =
+    value
