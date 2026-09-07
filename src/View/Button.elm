@@ -6,14 +6,14 @@ module View.Button exposing
     )
 
 import Css
-import Html.Styled as Html
+import Html.Styled as H
     exposing
         ( Attribute
         , Html
         )
-import Html.Styled.Attributes as Attr
+import Html.Styled.Attributes as A
+import Html.Styled.Events as Ev
 import Style as S
-import Svg.Styled.Events as Event
 
 
 
@@ -76,7 +76,7 @@ toHtml button =
     let
         conditionalAttrs : List (Attribute msg)
         conditionalAttrs =
-            [ Maybe.map Event.onClick button.onClick
+            [ Maybe.map Ev.onClick button.onClick
             ]
                 |> List.filterMap identity
 
@@ -112,13 +112,15 @@ toHtml button =
                                 ]
                             ]
             in
-            [ Attr.css
+            [ A.css
                 [ S.p2
+                , Css.alignSelf Css.flexStart
+                , Css.maxWidth (Css.pct 100)
                 , S.pointerCursor
                 , S.batch variantStyles
                 ]
             ]
     in
-    Html.button
+    H.button
         (baseAttrs ++ conditionalAttrs)
-        [ Html.text button.label ]
+        [ H.text button.label ]

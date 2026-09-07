@@ -60,6 +60,7 @@ the roles below guide their reuse, not a claim that every pairing is accessible.
 | Bevel light edge | internal `gray2Str` | `#57524F` |
 | Header text | `textGray3` | `#807672` |
 | Default text | `textGray4` | `#B0A69A` |
+| Links | `link` | `#8CC8FF`; hover/focus `#C4E3FF` |
 | Brighter text | `textGray5` | `#E0D6CA` |
 | Primary control background | `bgYellow1` | `#302507` |
 | Primary control text | `textYellow4` | `#B39F4B` |
@@ -88,7 +89,8 @@ are 4, 8, 12, and 16px; helper suffixes are not literal pixel values.
 
 The current shell places a sidebar alongside a flexible scrolling main area.
 Sidebar widths are 16rem expanded and 4rem collapsed. The main area uses `minW0`
-to allow its flex child to shrink. Pages use bounded content panels.
+to allow its flex child to shrink. Pages use the available main-area width, with one outer gutter and one panel
+inset; do not cap the whole page to a centered form width.
 Pages that need a full viewport minimum height apply `S.minHFullViewport`
 explicitly. Reuse the helper rather than styling page children from `Main`.
 Use Tailwind-inspired names for reusable layout utilities: `S.flexWrap` maps
@@ -100,7 +102,13 @@ Guidelines:
 - Give each content panel one padding inset; headings, forms, and detail rows
   inside it use container gaps instead of adding more padding. Keep the page's
   outer gutter and controls' internal padding separate from content spacing.
-- Use small gaps within a group and larger gaps between groups.
+- Use small gaps within a group and larger gaps between groups. Labels and fields
+  use consistent gaps. Put fieldset contents in a gap-controlled inner container
+  when a heading needs normal layout; native legends sit outside that flow.
+- Action buttons size to their labels and align to the start instead of stretching
+  across a column. Native selects use a centered chevron with a deliberate right
+  inset and reserved text space.
+- Render status rows only when they contain a message.
 - Keep panel geometry stable as labels, status messages, and content change.
 - Allow long names and values to wrap where useful. If truncating, provide a
   way to access the full value.
@@ -109,7 +117,8 @@ Guidelines:
 
 ### Edges and depth
 
-`outdent` uses lighter top/left and darker bottom/right 2px borders. `indent`
+All visible borders use the shared 1px `borderWidth` token in `Style`.
+`outdent` uses lighter top/left and darker bottom/right borders. `indent`
 reverses them. Primary controls use the yellow `importantOutdent` and
 `importantIndent` variants. Buttons switch to inset edges while pressed.
 
@@ -132,7 +141,9 @@ structure or interaction, and avoid surrounding every text group with a panel.
 | Navigation | [Sidebar](src/Sidebar.elm), [Route](src/Route.elm) | Use anchors with `Route.href`; retain normal browser link behavior. |
 | Dialog foundation | [View.Dialog](src/View/Dialog.elm) | Currently a positioned container; complete modal behavior before using it as a modal. |
 
-Established: sidebar destinations appear as text links, with hover/focus emphasis.
+Established: all navigation links use `S.link`: light blue with a persistent
+underline, brighter hover/focus text, and a visible keyboard focus outline.
+Apply the shared helper to sidebar, list, inline, and back-navigation anchors.
 The sidebar toggle is a button because it changes interface state.
 AllPersons lists names alphabetically as text links to person pages, with long
 names wrapping inside the panel. Loading, empty, and failed requests have distinct
@@ -147,6 +158,11 @@ fieldset disables related controls while saving. Keep human-entered records and
 AI reflections visibly attributed; retired memories remain inspectable with an
 explicit status. Clear only the successfully submitted draft and preserve other
 drafts. Goals can be completed, abandoned, and reopened.
+
+AllConversations owns the conversation list and creation form. ConversationPage
+owns one conversation and its controls, with an All conversations link back to
+the list. Keep list and detail page state separate; refresh only the open detail
+page, and ignore responses originating from a different conversation.
 
 Conversation autonomy is opt-in. Show its current interval and paid-call behavior
 beside the controls. Stop cancels the active turn and disables autonomy; the
@@ -207,6 +223,10 @@ experiment into an established preference or expand a small task into a redesign
 
 | Date | Status | Decision and reason |
 | --- | --- | --- |
+| 2026-09-07 | Established | Give all links a shared light-blue, underlined treatment with brighter hover/focus and a focus outline, following feedback that links were hard to recognize. |
+| 2026-09-07 | Established | Use available page width, content-sized action buttons, consistent form gaps, and an inset select chevron following screenshot feedback. |
+| 2026-09-07 | Established | Split conversation browsing and detail into AllConversations and ConversationPage, keeping creation with the list and existing URLs intact. |
+| 2026-09-07 | Established | Changed all borders from 2px to 1px following user feedback. Shared bevels and border helpers use one width token, including pressed controls. |
 | 2026-09-07 | Established | Use `S.flexWrap` and Tailwind-inspired names for shared layout utilities. Keep page subsections in their owning Elm page. |
 | 2026-09-05 | Established baseline | Recorded the existing People theme: nightwood, Fira Code with local fallbacks, beveled controls, and link-based navigation. Grounds future work in the current frontend. |
 | 2026-09-06 | Experiment | Shared-note revisions load on request and expand individually, with author and turn attribution. Keeps earlier AI contributions inspectable without expanding every note. |

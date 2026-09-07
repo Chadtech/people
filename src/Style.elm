@@ -98,6 +98,7 @@ module Style exposing
     , left50Pct
     , leftNeg128
     , lg
+    , link
     , m0
     , m2
     , m4
@@ -212,6 +213,7 @@ module Style exposing
     , s24
     , s6
     , sNeg128
+    , selectControl
     , setBgColorVar
     , setPrimaryColorVar
     , shrink0
@@ -303,6 +305,21 @@ global =
     , Css.Global.selector "h1, h2, h3, h4, h5, h6"
         [ textGray3 ]
     ]
+
+
+link : Css.Style
+link =
+    Css.batch
+        [ Css.property "color" "#8CC8FF"
+        , underline
+        , Css.property "text-underline-offset" "0.2em"
+        , Css.hover [ Css.property "color" "#C4E3FF" ]
+        , Css.focus
+            [ Css.property "color" "#C4E3FF"
+            , Css.property "outline" "1px solid currentColor"
+            , Css.property "outline-offset" "2px"
+            ]
+        ]
 
 
 nightwood0Str : String
@@ -435,42 +452,47 @@ yellow2Color =
     Css.hex yellow2Str
 
 
+borderWidth : Value { provides | px : Supported }
+borderWidth =
+    Css.px 1
+
+
 indent : Css.Style
 indent =
-    [ Css.borderLeft3 (Css.px 2) Css.solid gray0Color
-    , Css.borderTop3 (Css.px 2) Css.solid gray0Color
-    , Css.borderRight3 (Css.px 2) Css.solid content2Color
-    , Css.borderBottom3 (Css.px 2) Css.solid content2Color
+    [ Css.borderLeft3 borderWidth Css.solid gray0Color
+    , Css.borderTop3 borderWidth Css.solid gray0Color
+    , Css.borderRight3 borderWidth Css.solid content2Color
+    , Css.borderBottom3 borderWidth Css.solid content2Color
     ]
         |> Css.batch
 
 
 outdent : Css.Style
 outdent =
-    [ Css.borderLeft3 (Css.px 2) Css.solid content2Color
-    , Css.borderTop3 (Css.px 2) Css.solid content2Color
-    , Css.borderRight3 (Css.px 2) Css.solid gray0Color
-    , Css.borderBottom3 (Css.px 2) Css.solid gray0Color
+    [ Css.borderLeft3 borderWidth Css.solid content2Color
+    , Css.borderTop3 borderWidth Css.solid content2Color
+    , Css.borderRight3 borderWidth Css.solid gray0Color
+    , Css.borderBottom3 borderWidth Css.solid gray0Color
     ]
         |> Css.batch
 
 
 importantOutdent : Css.Style
 importantOutdent =
-    [ Css.borderLeft3 (Css.px 2) Css.solid yellow2Color
-    , Css.borderTop3 (Css.px 2) Css.solid yellow2Color
-    , Css.borderRight3 (Css.px 2) Css.solid yellow0Color
-    , Css.borderBottom3 (Css.px 2) Css.solid yellow0Color
+    [ Css.borderLeft3 borderWidth Css.solid yellow2Color
+    , Css.borderTop3 borderWidth Css.solid yellow2Color
+    , Css.borderRight3 borderWidth Css.solid yellow0Color
+    , Css.borderBottom3 borderWidth Css.solid yellow0Color
     ]
         |> Css.batch
 
 
 importantIndent : Css.Style
 importantIndent =
-    [ Css.borderLeft3 (Css.px 2) Css.solid yellow0Color
-    , Css.borderTop3 (Css.px 2) Css.solid yellow0Color
-    , Css.borderRight3 (Css.px 2) Css.solid yellow2Color
-    , Css.borderBottom3 (Css.px 2) Css.solid yellow2Color
+    [ Css.borderLeft3 borderWidth Css.solid yellow0Color
+    , Css.borderTop3 borderWidth Css.solid yellow0Color
+    , Css.borderRight3 borderWidth Css.solid yellow2Color
+    , Css.borderBottom3 borderWidth Css.solid yellow2Color
     ]
         |> Css.batch
 
@@ -502,12 +524,12 @@ opaque =
 
 border : Css.Style
 border =
-    Css.border2 (Css.px 1) Css.solid
+    Css.border2 borderWidth Css.solid
 
 
 borderLg : Css.Style
 borderLg =
-    Css.border2 (Css.px 2) Css.solid
+    border
 
 
 borderNone : Css.Style
@@ -527,22 +549,22 @@ borderGray4 =
 
 borderT : Css.Style
 borderT =
-    Css.borderTop2 (Css.px 1) Css.solid
+    Css.borderTop2 borderWidth Css.solid
 
 
 borderB : Css.Style
 borderB =
-    Css.borderBottom2 (Css.px 1) Css.solid
+    Css.borderBottom2 borderWidth Css.solid
 
 
 borderR : Css.Style
 borderR =
-    Css.borderRight2 (Css.px 1) Css.solid
+    Css.borderRight2 borderWidth Css.solid
 
 
 borderL : Css.Style
 borderL =
-    Css.borderLeft2 (Css.px 1) Css.solid
+    Css.borderLeft2 borderWidth Css.solid
 
 
 borderX : Css.Style
@@ -2019,3 +2041,20 @@ capitalize =
 flexWrap : Css.Style
 flexWrap =
     Css.flexWrap Css.wrap
+
+
+selectControl : Css.Style
+selectControl =
+    batch
+        [ indent
+        , bgNightwood1
+        , textGray4
+        , p2
+        , wFull
+        , minW0
+        , Css.property "appearance" "none"
+        , Css.property "padding-right" "2.5rem"
+        , Css.property "background-image" "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23B0A69A' stroke-width='1.5'/%3E%3C/svg%3E\")"
+        , Css.property "background-repeat" "no-repeat"
+        , Css.property "background-position" "right 0.75rem center"
+        ]

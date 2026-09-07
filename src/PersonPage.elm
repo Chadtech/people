@@ -295,7 +295,6 @@ view model =
                 [ S.bgGray1
                 , S.col
                 , S.g3
-                , S.maxW192
                 , S.outdent
                 , S.p3
                 , S.wFull

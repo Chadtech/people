@@ -46,14 +46,25 @@ The application uses Acadia's `/_endpoints` route for database operations.
 worker with GHC 9.8.4. Start Acadia first, then check the connection:
 
 ```sh
-cabal run people-worker -- check http://localhost:9000
+cabal run exe:people-worker -- check http://localhost:9000
 ```
 
-Set `OPENAI_API_KEY` and `OPENAI_MODEL` in your local worker environment. The model
-must support the OpenAI Responses API and structured JSON outputs. Start with:
+Run the worker from the project root. It automatically reads `.env.local` and
+`.env` there. Exported shell variables take priority, followed by `.env.local`,
+then `.env`. Missing files are fine; both local files are Git-ignored.
+
+If you already have `.env.local`, fill in `OPENAI_API_KEY` and `OPENAI_MODEL`
+there. Otherwise, copy `.env.example` to `.env` and fill in those two values.
+The model must support the OpenAI Responses API and structured JSON outputs.
+Files support `KEY=value`, optional `export`, single or double quotes, and
+comments. Values are literal: shell commands, variable interpolation, escape
+sequences, and multiline values are not evaluated. Restart the worker after
+editing a file. The connection `check` command needs no API configuration.
+
+Start the worker (in a separate terminal from `make dev`) with:
 
 ```sh
-cabal run people-worker -- run http://localhost:9000
+cabal run exe:people-worker -- run http://localhost:9000
 ```
 
 Give a person an identity on their page, then create a conversation and select

@@ -8,12 +8,12 @@ module AllPersons exposing
     , view
     )
 
-import Person
 import Css
 import Document exposing (Document)
 import Effect as E exposing (Eff)
 import Html.Styled as H exposing (Html)
 import Html.Styled.Attributes as A
+import Person
 import PersonId.Util as PersonIdUtil
 import Route
 import Shared
@@ -87,7 +87,7 @@ view model =
         [ H.div
             [ A.css [ S.minHFullViewport, Css.alignItems Css.flexStart, S.justifyCenter, S.p4, S.row, S.wFull ] ]
             [ H.article
-                [ A.css [ S.bgGray1, S.col, S.g3, S.maxW192, S.minW0, S.outdent, S.p3, S.wFull ] ]
+                [ A.css [ S.bgGray1, S.col, S.g3, S.minW0, S.outdent, S.p3, S.wFull ] ]
                 [ H.h1 [ A.css [ S.textGray3 ] ] [ H.text "All persons" ]
                 , peopleView model.people
                 ]
@@ -111,7 +111,7 @@ peopleView people =
         Loaded [] ->
             H.div [ A.css [ S.col, S.g2 ] ]
                 [ H.p [] [ H.text "No people yet." ]
-                , H.a [ Route.href Route.NewPerson ] [ H.text "Create a person" ]
+                , H.a [ Route.href Route.NewPerson, A.css [ S.link ] ] [ H.text "Create a person" ]
                 ]
 
         Loaded persons ->
@@ -125,9 +125,7 @@ personLink person =
         [ H.a
             [ Route.href (Route.Person person.id)
             , A.css
-                [ S.textGray4
-                , S.hover [ S.textGray5 ]
-                , Css.focus [ S.textGray5, S.underline ]
+                [ S.link
                 , Css.property "overflow-wrap" "anywhere"
                 ]
             ]

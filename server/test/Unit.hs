@@ -12,6 +12,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as Text
 import qualified GoalId
 import qualified People.OpenAI as OpenAI
+import qualified People.Environment as Environment
 
 
 assert :: Bool -> String -> IO ()
@@ -51,6 +52,13 @@ envelope status result =
 
 main :: IO ()
 main = do
+    assert
+        (Environment.parseFile "# comment\r\nexport KEY = 'value # literal'\r\nMODEL=example # comment\nEMPTY=\nLITERAL=$(echo value)\nQUOTED=\"a=b\"\n"
+            == Right [("KEY", "value # literal"), ("MODEL", "example"), ("EMPTY", ""), ("LITERAL", "$(echo value)"), ("QUOTED", "a=b")])
+        "Environment quoting, comments, CRLF, or literal values changed"
+    forM_ ["KEY='unclosed", "KEY=\"value\"garbage", "1KEY=value", "missing assignment"] $ \invalid ->
+        assert (Environment.parseFile ("# comment\n" ++ invalid) == Left 2)
+            "Malformed environment assignment was accepted"
     assert
         ( OpenAI.parseResponse (envelope "completed" (turn "Hello" ""))
             == Right (OpenAI.Outcome "Hello" "" "" Nothing "")

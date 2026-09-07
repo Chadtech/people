@@ -1,9 +1,11 @@
 module Main exposing (main)
 
+import AllConversations
 import AllPersons
 import Browser
 import Browser.Navigation as Navigation
-import Conversations
+import ConversationId exposing (ConversationId)
+import ConversationPage
 import Css.Global
 import DevelopmentData
 import Document exposing (Document)
@@ -23,13 +25,16 @@ import Url exposing (Url)
 
 
 type Page
-    = Conversations Conversations.Model
+    = AllConversations AllConversations.Model
+    | Conversation ConversationPage.Model
     | AllPersons AllPersons.Model
     | NewPerson NewPerson.Model
     | Person PersonPage.Model
     | LoadingPerson Shared.Model PersonId
     | PersonLoadFailed Shared.Model
     | PageNotFound Shared.Model
+    | LoadingDevData Shared.Model
+    | FailedToLoadDevData Shared.Model
 
 
 type Msg
@@ -38,10 +43,11 @@ type Msg
     | AllPersonsMsg AllPersons.Msg
     | NewPersonMsg NewPerson.Msg
     | PersonMsg PersonPage.Msg
-    | ConversationsMsg Conversations.Msg
+    | AllConversationsMsg AllConversations.Msg
+    | ConversationMsg ConversationId ConversationPage.Msg
     | LoadedPersonPage PersonId (Remote PersonPageFlags)
     | SidebarMsg Sidebar.Msg
-    | DevelopmentDataResponseReceived (Maybe ())
+    | DevelopmentDataResponseReceived (Maybe Route) (Maybe ())
 
 
 main : Program () Page Msg
@@ -64,15 +70,24 @@ main =
 
 init : Url -> Navigation.Key -> ( Page, Eff Msg )
 init url key =
-    handleRouteChange (Route.fromUrl url) (Shared.init key)
-        |> E.and (DevelopmentData.init DevelopmentDataResponseReceived)
+    let
+        route : Maybe Route
+        route =
+            Route.fromUrl url
+    in
+    ( LoadingDevData (Shared.init key)
+    , DevelopmentData.init (DevelopmentDataResponseReceived route)
+    )
 
 
 getShared : Page -> Shared.Model
 getShared page =
     case page of
-        Conversations model ->
-            Conversations.shared model
+        AllConversations model ->
+            AllConversations.shared model
+
+        Conversation model ->
+            ConversationPage.shared model
 
         AllPersons allPersonsModel ->
             AllPersons.shared allPersonsModel
@@ -92,12 +107,21 @@ getShared page =
         PageNotFound sharedModel ->
             sharedModel
 
+        LoadingDevData shared ->
+            shared
+
+        FailedToLoadDevData shared ->
+            shared
+
 
 setShared : Shared.Model -> Page -> Page
 setShared sharedModel page =
     case page of
-        Conversations model ->
-            Conversations (Conversations.setShared sharedModel model)
+        AllConversations model ->
+            AllConversations (AllConversations.setShared sharedModel model)
+
+        Conversation model ->
+            Conversation (ConversationPage.setShared sharedModel model)
 
         AllPersons allPersonsModel ->
             AllPersons (AllPersons.setShared sharedModel allPersonsModel)
@@ -117,19 +141,25 @@ setShared sharedModel page =
         PageNotFound _ ->
             PageNotFound sharedModel
 
+        LoadingDevData _ ->
+            LoadingDevData sharedModel
+
+        FailedToLoadDevData _ ->
+            FailedToLoadDevData sharedModel
+
 
 handleRouteChange : Maybe Route -> Shared.Model -> ( Page, Eff Msg )
 handleRouteChange maybeRoute sharedModel =
     case maybeRoute of
         Just Route.Conversations ->
-            Conversations.init sharedModel Nothing
-                |> Tuple.mapFirst Conversations
-                |> Tuple.mapSecond (E.map ConversationsMsg)
+            AllConversations.init sharedModel
+                |> Tuple.mapFirst AllConversations
+                |> Tuple.mapSecond (E.map AllConversationsMsg)
 
         Just (Route.Conversation id) ->
-            Conversations.init sharedModel (Just id)
-                |> Tuple.mapFirst Conversations
-                |> Tuple.mapSecond (E.map ConversationsMsg)
+            ConversationPage.init sharedModel id
+                |> Tuple.mapFirst Conversation
+                |> Tuple.mapSecond (E.map (ConversationMsg id))
 
         Just Route.AllPersons ->
             AllPersons.init sharedModel
@@ -165,8 +195,13 @@ update msg page =
         ChangesRoute maybeRoute ->
             handleRouteChange maybeRoute (getShared page)
 
-        DevelopmentDataResponseReceived _ ->
-            ( page, E.none )
+        DevelopmentDataResponseReceived maybeRoute result ->
+            case result of
+                Just () ->
+                    handleRouteChange maybeRoute (getShared page)
+
+                Nothing ->
+                    ( page, E.none )
 
         SidebarMsg sidebarMsg ->
             case sidebarMsg of
@@ -195,12 +230,26 @@ update msg page =
                 _ ->
                     ( page, E.none )
 
-        ConversationsMsg conversationMsg ->
+        AllConversationsMsg allConversationsMsg ->
             case page of
-                Conversations model ->
-                    Conversations.update conversationMsg model
-                        |> Tuple.mapFirst Conversations
-                        |> Tuple.mapSecond (E.map ConversationsMsg)
+                AllConversations model ->
+                    AllConversations.update allConversationsMsg model
+                        |> Tuple.mapFirst AllConversations
+                        |> Tuple.mapSecond (E.map AllConversationsMsg)
+
+                _ ->
+                    ( page, E.none )
+
+        ConversationMsg id conversationMsg ->
+            case page of
+                Conversation model ->
+                    if model.conversationId == id then
+                        ConversationPage.update conversationMsg model
+                            |> Tuple.mapFirst Conversation
+                            |> Tuple.mapSecond (E.map (ConversationMsg id))
+
+                    else
+                        ( page, E.none )
 
                 _ ->
                     ( page, E.none )
@@ -272,8 +321,11 @@ view page =
 pageDocument : Page -> Document Msg
 pageDocument page =
     case page of
-        Conversations model ->
-            Conversations.view model |> Document.map ConversationsMsg
+        AllConversations model ->
+            AllConversations.view model |> Document.map AllConversationsMsg
+
+        Conversation model ->
+            ConversationPage.view model |> Document.map (ConversationMsg model.conversationId)
 
         AllPersons allPersonsModel ->
             AllPersons.view allPersonsModel
@@ -290,7 +342,8 @@ pageDocument page =
         LoadingPerson _ _ ->
             { title = "Loading person"
             , body =
-                [ H.p [ A.css [ S.p4 ], A.attribute "role" "status" ]
+                [ H.p
+                    [ A.css [ S.p4 ], A.attribute "role" "status" ]
                     [ H.text
                         "Loading person…"
                     ]
@@ -311,12 +364,35 @@ pageDocument page =
                 ]
             }
 
+        LoadingDevData _ ->
+            { title = "Loading development data"
+            , body =
+                [ H.p
+                    [ A.css [ S.p4 ], A.attribute "role" "status" ]
+                    [ H.text
+                        "Loading development data…"
+                    ]
+                ]
+            }
+
+        FailedToLoadDevData _ ->
+            { title = "Could not load development data"
+            , body =
+                [ H.p
+                    [ A.css [ S.p4 ], A.attribute "role" "alert" ]
+                    [ H.text
+                        "Could not load development data. Reload to retry."
+                    ]
+                ]
+            }
+
 
 subscriptions : Page -> Sub Msg
 subscriptions page =
     case page of
-        Conversations model ->
-            Conversations.subscriptions model |> Sub.map ConversationsMsg
+        Conversation model ->
+            ConversationPage.subscriptions
+                |> Sub.map (ConversationMsg model.conversationId)
 
         _ ->
             Sub.none

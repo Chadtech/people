@@ -1,6 +1,7 @@
 database module Person exposing
     ( Person
     , PersonPageFlags
+    , allPersons
     , requirePerson
     , endpoint createNewPerson
     , endpoint getAllPersons
@@ -117,8 +118,13 @@ loadPersonPage _ personId =
 
 getAllPersons : Cookies -> Transaction (Rows Person)
 getAllPersons _ =
-    Table.access people Security.Unrestricted
+    allPersons
         |> R.selectAll
+
+
+allPersons : Rows Person
+allPersons =
+    Table.access people Security.Unrestricted
 
 
 requirePerson : PersonId -> Transaction Person

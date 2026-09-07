@@ -1,5 +1,6 @@
 database module Chat exposing
-    ( Conversation
+    ( AllConversationsPageFlag(..)
+    , Conversation
     , Generation
     , GenerationSummary
     , Message
@@ -11,6 +12,7 @@ database module Chat exposing
     , endpoint expireGeneration
     , endpoint failGeneration
     , endpoint finishGeneration
+    , endpoint getAllConversationsPageFlags
     , endpoint getConversations
     , endpoint getExpiredGenerations
     , endpoint getGenerationPhase
@@ -47,7 +49,7 @@ import MessageContent exposing (MessageContent(..))
 import MessageId exposing (MessageId)
 import Note exposing (Note(..))
 import Origin
-import Person
+import Person exposing (Person)
 import PersonId exposing (PersonId)
 import PromptSnapshot exposing (PromptSnapshot(..))
 import Revision exposing (Revision(..))
@@ -72,6 +74,16 @@ type alias Conversation =
     , nextTurnAt : Posix
     , lastSpeaker : Maybe PersonId
     }
+
+
+
+-- Acadia endpoints can stream rows only at the top level of the response.
+
+
+type AllConversationsPageFlag
+    = ConversationFlag Conversation
+    | PersonFlag Person
+    | ConversationAndPersonFlag Conversation Person
 
 
 type alias Message =
@@ -249,6 +261,35 @@ addParticipant cookies conversationId personId =
 getConversations : Cookies -> Transaction (Rows Conversation)
 getConversations _ =
     Table.access conversations Security.Unrestricted |> R.selectAll
+
+
+getAllConversationsPageFlags : Cookies -> Transaction (Rows AllConversationsPageFlag)
+getAllConversationsPageFlags _ =
+    let
+        conversationRows : Rows Conversation
+        conversationRows =
+            Table.access conversations Security.Unrestricted
+    in
+    R.union
+        (\conversation -> ( False, ConversationId.toUInt64 conversation.id ))
+        conversationRows
+        (\person -> ( True, PersonId.toUInt64 person.id ))
+        Person.allPersons
+        |> R.map pageFlag
+        |> R.selectAll
+
+
+pageFlag : R.Union Conversation Person.Person -> AllConversationsPageFlag
+pageFlag row =
+    case row of
+        R.Left conversation ->
+            ConversationFlag conversation
+
+        R.Right person ->
+            PersonFlag person
+
+        R.Both conversation person ->
+            ConversationAndPersonFlag conversation person
 
 
 getScheduledConversations : Cookies -> Transaction (Rows Conversation)

@@ -90,7 +90,7 @@ view shared =
                     ]
                 ]
                 [ H.li []
-                    [ H.a [ Route.href Route.Conversations, A.title "Conversations", A.css [ S.block, S.p2, S.px3, S.textGray4 ] ]
+                    [ H.a [ Route.href Route.Conversations, A.title "Conversations", A.css [ S.block, S.p2, S.px3, S.link ] ]
                         [ H.text
                             (if shared.sidebarOpen then
                                 "◇    Conversations"
@@ -108,10 +108,7 @@ view shared =
                             [ S.block
                             , S.p2
                             , S.px3
-                            , S.textGray4
-                            , S.hover [ S.textGray5, S.underline ]
-                            , Css.focus [ S.textGray5, S.underline ]
-                            , Css.property "text-decoration" "none"
+                            , S.link
                             ]
                         ]
                         [ H.span [] [ H.text "≡" ]
@@ -130,10 +127,7 @@ view shared =
                             [ S.block
                             , S.p2
                             , S.px3
-                            , S.textGray4
-                            , S.hover [ S.textGray5, S.underline ]
-                            , Css.focus [ S.textGray5, S.underline ]
-                            , Css.property "text-decoration" "none"
+                            , S.link
                             ]
                         ]
                         [ H.span [] [ H.text "+" ]

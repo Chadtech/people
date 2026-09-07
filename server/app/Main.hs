@@ -2,10 +2,11 @@ module Main (main) where
 
 import qualified Data.Text as Text
 import qualified People.Database as Database
+import qualified People.Environment as Environment
 import qualified People.OpenAI as OpenAI
 import qualified People.Worker as Worker
 import qualified Person
-import System.Environment (getArgs, getEnv)
+import System.Environment (getArgs)
 
 
 -- Credentials stay in the worker environment, never in prompt snapshots.
@@ -18,8 +19,9 @@ main = do
             people <- Database.runTransaction database Person.getAllPersons
             putStrLn ("Acadia connection verified; " ++ show (length people) ++ " people.")
         ["run", url] -> do
-            apiKey <- getEnv "OPENAI_API_KEY"
-            model <- Text.pack <$> getEnv "OPENAI_MODEL"
+            Environment.loadFiles [".env.local", ".env"]
+            apiKey <- Environment.require "OPENAI_API_KEY"
+            model <- Text.pack <$> Environment.require "OPENAI_MODEL"
             client <- OpenAI.connect apiKey model
             database <- Database.connect url
             Worker.runWorker database client

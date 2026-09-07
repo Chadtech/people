@@ -1,4 +1,4 @@
-module Conversations exposing
+module ConversationPage exposing
     ( Model
     , Msg
     , init
@@ -14,8 +14,6 @@ import Acadia.UInt64 as UInt64
 import Acadia.UInt8
 import Chat
 import ConversationId exposing (ConversationId)
-import ConversationId.Util as ConversationIdUtil
-import ConversationTitle
 import ConversationTitle.Util as ConversationTitleUtil
 import Css
 import Dict exposing (Dict)
@@ -54,7 +52,7 @@ type alias Model =
     { shared : Shared.Model
     , conversations : Maybe (List Chat.Conversation)
     , people : List Person.Person
-    , selected : Maybe ConversationId
+    , conversationId : ConversationId
     , messages : List Chat.Message
     , participants : List PersonId
     , noteHistory : Maybe (List Chat.NoteRevision)
@@ -63,7 +61,6 @@ type alias Model =
     , loadingNotes : Bool
     , generations : List Chat.GenerationSummary
     , draft : String
-    , title : String
     , speaker : String
     , pending : Bool
     , error : Maybe String
@@ -82,10 +79,7 @@ type Msg
     | NoteHistoryClicked
     | NoteHistoryResponseReceived ConversationId (Maybe (List Chat.NoteRevision))
     | DraftInputChanged String
-    | TitleInputChanged String
     | SpeakerSelectionChanged String
-    | CreateButtonClicked
-    | ConversationCreatedResponseReceived (Maybe ConversationId)
     | SendButtonClicked
     | ReplyButtonClicked
     | RunButtonClicked
@@ -96,15 +90,15 @@ type Msg
     | TurnResponseReceived (Maybe GenerationId)
 
 
-init : Shared.Model -> Maybe ConversationId -> ( Model, Eff Msg )
-init sharedModel selected =
+init : Shared.Model -> ConversationId -> ( Model, Eff Msg )
+init sharedModel conversationId =
     let
         model : Model
         model =
             { shared = sharedModel
             , conversations = Nothing
             , people = []
-            , selected = selected
+            , conversationId = conversationId
             , messages = []
             , participants = []
             , generations = []
@@ -113,7 +107,6 @@ init sharedModel selected =
             , prompts = Dict.empty
             , loadingPrompts = Set.empty
             , draft = ""
-            , title = ""
             , speaker = ""
             , pending = False
             , error = Nothing
@@ -132,8 +125,8 @@ setShared value model =
     { model | shared = value }
 
 
-subscriptions : Model -> Sub Msg
-subscriptions _ =
+subscriptions : Sub Msg
+subscriptions =
     Time.every 1500 TickReceived
 
 
@@ -142,26 +135,16 @@ refresh model =
     E.batch
         [ E.attempt ConversationsResponseReceived Chat.getConversations
         , E.attempt PeopleResponseReceived Person.getAllPersons
-        , case model.selected of
-            Nothing ->
-                E.none
-
-            Just id ->
-                E.batch
-                    [ E.attempt (MessagesResponseReceived id)
-                        (Chat.getMessages id)
-                    , E.attempt (ParticipantsResponseReceived id)
-                        (Chat.getParticipants id)
-                    , E.attempt (GenerationsResponseReceived id)
-                        (Chat.getGenerationSummaries id)
-                    ]
+        , E.attempt (MessagesResponseReceived model.conversationId) (Chat.getMessages model.conversationId)
+        , E.attempt (ParticipantsResponseReceived model.conversationId) (Chat.getParticipants model.conversationId)
+        , E.attempt (GenerationsResponseReceived model.conversationId) (Chat.getGenerationSummaries model.conversationId)
         ]
 
 
 current : Model -> Maybe Chat.Conversation
 current model =
     model.conversations
-        |> Maybe.andThen (List.filter (\c -> Just c.id == model.selected) >> List.head)
+        |> Maybe.andThen (List.filter (\c -> c.id == model.conversationId) >> List.head)
 
 
 update : Msg -> Model -> ( Model, Eff Msg )
@@ -193,7 +176,7 @@ update msg model =
                     ( { model | people = rows }, E.none )
 
         MessagesResponseReceived id result ->
-            if Just id == model.selected then
+            if id == model.conversationId then
                 ( { model | messages = Maybe.withDefault model.messages result }
                 , E.none
                 )
@@ -202,7 +185,7 @@ update msg model =
                 ( model, E.none )
 
         ParticipantsResponseReceived id result ->
-            if Just id == model.selected then
+            if id == model.conversationId then
                 ( { model | participants = Maybe.withDefault model.participants result }
                 , E.none
                 )
@@ -211,7 +194,7 @@ update msg model =
                 ( model, E.none )
 
         GenerationsResponseReceived id result ->
-            if Just id == model.selected then
+            if id == model.conversationId then
                 ( { model | generations = Maybe.withDefault model.generations result }
                 , E.none
                 )
@@ -220,28 +203,23 @@ update msg model =
                 ( model, E.none )
 
         PromptInspectionClicked generationId ->
-            case model.selected of
-                Just conversationId ->
-                    if Set.member (GenerationIdUtil.toString generationId) model.loadingPrompts then
-                        ( model, E.none )
+            if Set.member (GenerationIdUtil.toString generationId) model.loadingPrompts then
+                ( model, E.none )
 
-                    else
-                        ( { model
-                            | loadingPrompts =
-                                Set.insert
-                                    (GenerationIdUtil.toString generationId)
-                                    model.loadingPrompts
-                          }
-                        , E.fetch
-                            (PromptResponseReceived conversationId generationId)
-                            (Chat.getGenerationPrompt conversationId generationId)
-                        )
-
-                Nothing ->
-                    ( model, E.none )
+            else
+                ( { model
+                    | loadingPrompts =
+                        Set.insert
+                            (GenerationIdUtil.toString generationId)
+                            model.loadingPrompts
+                  }
+                , E.fetch
+                    (PromptResponseReceived model.conversationId generationId)
+                    (Chat.getGenerationPrompt model.conversationId generationId)
+                )
 
         PromptResponseReceived conversationId generationId result ->
-            if model.selected /= Just conversationId then
+            if model.conversationId /= conversationId then
                 ( model, E.none )
 
             else
@@ -276,21 +254,16 @@ update msg model =
                         ( { next | error = Just "Could not load that prompt. Try again." }, E.none )
 
         NoteHistoryClicked ->
-            case model.selected of
-                Just id ->
-                    if model.loadingNotes then
-                        ( model, E.none )
+            if model.loadingNotes then
+                ( model, E.none )
 
-                    else
-                        ( { model | loadingNotes = True }
-                        , E.attempt (NoteHistoryResponseReceived id) (Chat.getNoteRevisions id)
-                        )
-
-                Nothing ->
-                    ( model, E.none )
+            else
+                ( { model | loadingNotes = True }
+                , E.attempt (NoteHistoryResponseReceived model.conversationId) (Chat.getNoteRevisions model.conversationId)
+                )
 
         NoteHistoryResponseReceived id result ->
-            if Just id == model.selected then
+            if id == model.conversationId then
                 ( { model
                     | loadingNotes = False
                     , noteHistory =
@@ -316,49 +289,8 @@ update msg model =
         DraftInputChanged value ->
             ( { model | draft = value }, E.none )
 
-        TitleInputChanged value ->
-            ( { model | title = value }, E.none )
-
         SpeakerSelectionChanged value ->
             ( { model | speaker = value }, E.none )
-
-        CreateButtonClicked ->
-            case PersonIdUtil.fromString model.speaker of
-                Just personId ->
-                    if model.pending || String.isEmpty (String.trim model.title) then
-                        ( model, E.none )
-
-                    else
-                        ( { model | pending = True, error = Nothing }
-                        , E.attempt
-                            ConversationCreatedResponseReceived
-                            (Chat.createConversation
-                                (ConversationTitle.ConversationTitle (String.trim model.title))
-                                personId
-                            )
-                        )
-
-                Nothing ->
-                    ( { model | error = Just "Choose the first participant." }, E.none )
-
-        ConversationCreatedResponseReceived result ->
-            case result of
-                Just id ->
-                    ( { model | pending = False }
-                    , E.pushUrl
-                        ("/conversation/"
-                            ++ ConversationIdUtil.toString id
-                        )
-                    )
-
-                Nothing ->
-                    ( { model
-                        | pending = False
-                        , error =
-                            Just "Could not create the conversation. Your inputs are still here."
-                      }
-                    , E.none
-                    )
 
         SendButtonClicked ->
             if String.isEmpty (String.trim model.draft) then
@@ -487,7 +419,7 @@ requestTurn content model =
 
 view : Model -> Document Msg
 view model =
-    { title = "Conversations"
+    { title = current model |> Maybe.map (.title >> ConversationTitleUtil.toString) |> Maybe.withDefault "Conversation"
     , body =
         [ H.div [ A.css [ S.p4, S.col, S.g3, S.wFull ] ]
             [ H.article
@@ -498,83 +430,29 @@ view model =
                     , S.col
                     , S.g3
                     , S.minW0
-                    , S.maxW192
                     , S.wFull
                     ]
                 ]
-                [ H.h1 [ A.css [ S.textGray3 ] ] [ H.text "Conversations" ]
-                , case model.selected of
+                [ H.h1 [ A.css [ S.textGray3 ] ] [ H.text "Conversation" ]
+                , case current model of
                     Nothing ->
-                        conversationList model
+                        H.p []
+                            [ H.text
+                                (if model.conversations == Nothing then
+                                    "Loading…"
 
-                    Just _ ->
-                        case current model of
-                            Nothing ->
-                                H.p []
-                                    [ H.text
-                                        (if model.conversations == Nothing then
-                                            "Loading…"
+                                 else
+                                    "Conversation not found."
+                                )
+                            ]
 
-                                         else
-                                            "Conversation not found."
-                                        )
-                                    ]
-
-                            Just conversation ->
-                                conversationView model conversation
+                    Just conversation ->
+                        conversationView model conversation
                 , H.p [ A.attribute "role" "status" ] [ H.text (Maybe.withDefault "" model.error) ]
                 ]
             ]
         ]
     }
-
-
-conversationList : Model -> Html Msg
-conversationList model =
-    let
-        conversationLink : Chat.Conversation -> Html Msg
-        conversationLink c =
-            H.li
-                []
-                [ H.a
-                    [ Route.href (Route.Conversation c.id) ]
-                    [ H.text (ConversationTitleUtil.toString c.title) ]
-                ]
-    in
-    H.div
-        [ A.css [ S.col, S.g3 ] ]
-        [ H.ul
-            [ A.css
-                [ S.col
-                , S.g2
-                , Css.property "list-style" "none"
-                ]
-            ]
-            (Maybe.withDefault [] model.conversations
-                |> List.map conversationLink
-            )
-        , H.fieldset [ A.disabled model.pending, A.css [ Css.border (Css.px 0), S.col, S.g2 ] ]
-            [ H.legend [ A.css [ S.textGray3 ] ] [ H.text "New conversation" ]
-            , H.label
-                []
-                [ H.text "Title"
-                , H.input
-                    [ A.value model.title
-                    , Ev.onInput TitleInputChanged
-                    , A.css
-                        [ S.indent
-                        , S.bgNightwood1
-                        , S.textGray4
-                        , S.p2
-                        , S.wFull
-                        ]
-                    ]
-                    []
-                ]
-            , personSelector model
-            , Button.primary "Create conversation" CreateButtonClicked |> Button.toHtml
-            ]
-        ]
 
 
 personSelector : Model -> Html Msg
@@ -593,11 +471,7 @@ personSelector model =
         , H.select
             [ Ev.onInput SpeakerSelectionChanged
             , A.css
-                [ S.indent
-                , S.bgNightwood1
-                , S.textGray4
-                , S.p2
-                ]
+                [ S.selectControl ]
             ]
             (H.option
                 [ A.value ""
@@ -615,9 +489,7 @@ conversationView model conversation =
         [ H.a
             [ Route.href Route.Conversations
             , A.css
-                [ S.textGray4
-                , S.hover [ S.textGray5 ]
-                , Css.focus [ S.textGray5, S.underline ]
+                [ S.link
                 ]
             ]
             [ H.text "All conversations" ]

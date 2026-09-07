@@ -16,20 +16,6 @@ fromUInt64 n =
     PersonId n
 
 
-
---toString : PersonId -> String
---toString (PersonId n) =
---    UInt64.toString n
---fromString : String -> Maybe PersonId
---fromString str =
---    case fromString str of
---        Just n ->
---            Just (PersonId n)
---
---        Nothing ->
---            Nothing
-
-
 toUInt64 : PersonId -> UInt64
 toUInt64 (PersonId value) =
     value

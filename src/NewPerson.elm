@@ -8,13 +8,13 @@ module NewPerson exposing
     , update
     )
 
-import Person
 import Css
 import Document exposing (Document)
 import Effect as E exposing (Eff)
 import Html.Styled as H exposing (Html)
 import Html.Styled.Attributes as A
 import Html.Styled.Events as Event
+import Person
 import PersonId exposing (PersonId)
 import Route
 import Shared
@@ -120,7 +120,6 @@ view model =
                 [ S.bgGray1
                 , S.col
                 , S.g3
-                , Css.maxWidth (Css.rem 42)
                 , S.outdent
                 , S.p3
                 , S.wFull
@@ -177,10 +176,7 @@ statusView status =
                 , H.a
                     [ Route.href (Route.Person personId)
                     , A.css
-                        [ S.textGray4
-                        , S.underline
-                        , S.hover [ S.textGray5 ]
-                        , Css.focus [ S.textGray5 ]
+                        [ S.link
                         ]
                     ]
                     [ H.text "View person" ]
