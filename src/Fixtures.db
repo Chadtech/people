@@ -1,28 +1,20 @@
 database module Fixtures exposing ( endpoint fillDevelopmentData )
 
-import Chat
+import Conversation
 import ConversationId exposing (ConversationId)
 import ConversationTitle exposing (ConversationTitle(..))
 import Cookies exposing (Cookies)
-import GenerationError exposing (GenerationError(..))
 import Goal
 import GoalDescription exposing (GoalDescription(..))
-import IntervalSeconds exposing (IntervalSeconds(..))
-import LeaseSeconds exposing (LeaseSeconds(..))
 import Memory
 import MemoryContent exposing (MemoryContent(..))
 import MemoryKeywords exposing (MemoryKeywords(..))
-import MessageContent exposing (MessageContent(..))
-import Note exposing (Note(..))
-import Origin
 import Person
 import PersonId exposing (PersonId)
-import PromptSnapshot exposing (PromptSnapshot(..))
 import Revision exposing (Revision(..))
 import Rows as R
 import Security
 import Table exposing (Table)
-import TurnCount exposing (TurnCount(..))
 
 
 state : Table Security.Unrestricted { key : UInt8 }
@@ -136,10 +128,10 @@ fillDevelopmentData cookies =
 
                 conversation : ConversationId
                 conversation :=
-                    Chat.createConversation cookies
+                    Conversation.createConversation cookies
                         (ConversationTitle
                             "Long-running conversation"
                         )
                         ada
             in
-            Chat.addParticipant cookies conversation sam
+            Conversation.addParticipant cookies conversation sam

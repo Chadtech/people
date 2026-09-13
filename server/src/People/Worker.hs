@@ -10,6 +10,10 @@ import qualified PromptSnapshot
 
 import Acadia.Transaction (Transaction)
 import qualified Chat
+import Conversation (Conversation)
+import qualified Conversation
+import Generation (Generation)
+import qualified Generation
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (race)
 import Control.Exception (
@@ -33,6 +37,7 @@ import qualified Memory
 import qualified People.Database as Database
 import qualified People.OpenAI as OpenAI
 import qualified People.Prompt as Prompt
+import Person (Person)
 import qualified Person
 import qualified PersonId
 
@@ -52,19 +57,19 @@ runCycle
     -> IO ()
 runCycle database requestValue generate =
     handleFailure $ do
-        expired <- run Chat.getExpiredGenerations
+        expired <- run Generation.getExpiredGenerations
         forM_ expired (\g -> handleFailure (run (Chat.expireGeneration g.id)))
-        scheduled <- run Chat.getScheduledConversations
+        scheduled <- run Conversation.getScheduledConversations
         forM_ scheduled schedule
-        pending <- run Chat.getPendingGenerations
+        pending <- run Generation.getPendingGenerations
         forM_ (sortOn (.id) pending) process
     where
         run :: Transaction a -> IO a
         run = Database.runTransaction database
-        schedule :: Chat.Conversation -> IO ()
+        schedule :: Conversation -> IO ()
         schedule conversation = handleFailure $ do
             participants <-
-                sortOn personNumber <$> run (Chat.getParticipants conversation.id)
+                sortOn personNumber <$> run (Conversation.getParticipants conversation.id)
             case participants of
                 [] -> run (Chat.stopConversation conversation.id)
                 firstParticipant : _ -> do
@@ -78,18 +83,18 @@ runCycle database requestValue generate =
                             next : _ -> next
                             [] -> firstParticipant
                     void (run (Chat.requestTurn conversation.id conversation.revision speaker ""))
-        process :: Chat.Generation -> IO ()
+        process :: Generation -> IO ()
         process generation = do
             claimed <-
-                try (run (Chat.claimGeneration generation.id 180))
+                try (run (Generation.claimGeneration generation.id 180))
                     :: IO (Either SomeException ())
             case claimed of
                 Left err -> rethrowAsync err
                 Right () -> handleGenerationFailure generation $ do
                     people <- run Person.getAllPersons
-                    participants <- run (Chat.getParticipants generation.conversationId)
+                    participants <- run (Conversation.getParticipants generation.conversationId)
                     let
-                        roster :: [Person.Person]
+                        roster :: [Person]
                         roster =
                             filter
                                 (\p -> any (\member -> personNumber p.id == personNumber member) participants)
@@ -99,7 +104,7 @@ runCycle database requestValue generate =
                             (ioError (userError "The selected person is missing."))
                             pure
                             (find (\p -> personNumber p.id == personNumber generation.speaker) roster)
-                    conversations <- run Chat.getConversations
+                    conversations <- run Conversation.getConversations
                     conversation <-
                         maybe
                             (ioError (userError "The conversation is missing."))
@@ -123,7 +128,7 @@ runCycle database requestValue generate =
                             object
                                 ["request" .= requestValue prompt, "selection" .= Prompt.selection prompt]
                     run
-                        ( Chat.savePrompt
+                        ( Generation.savePrompt
                             generation.id
                             ( PromptSnapshot.PromptSnapshot
                                 (Text.decodeUtf8 (Lazy.toStrict (encode snapshot)))
@@ -143,14 +148,14 @@ runCycle database requestValue generate =
                                     outcome.sharedNote
                                 )
                             putStrLn ("Completed generation " ++ show generation.id)
-        waitForCancellation :: Chat.Generation -> IO ()
+        waitForCancellation :: Generation -> IO ()
         waitForCancellation generation = do
             threadDelay 500000
-            phase <- run (Chat.getGenerationPhase generation.id)
+            phase <- run (Generation.getGenerationPhase generation.id)
             case phase of
-                Just Chat.Running -> waitForCancellation generation
+                Just Generation.Running -> waitForCancellation generation
                 _ -> pure ()
-        handleGenerationFailure :: Chat.Generation -> IO () -> IO ()
+        handleGenerationFailure :: Generation -> IO () -> IO ()
         handleGenerationFailure generation operation =
             operation `catch` \(err :: SomeException) -> do
                 rethrowAsync err

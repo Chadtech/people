@@ -1,4 +1,4 @@
-database module MessageId exposing (MessageId, fromUInt64, toUInt64)
+database module MessageId exposing (MessageId, fromUInt64)
 
 
 type MessageId
@@ -8,8 +8,3 @@ type MessageId
 fromUInt64 : UInt64 -> MessageId
 fromUInt64 value =
     MessageId value
-
-
-toUInt64 : MessageId -> UInt64
-toUInt64 (MessageId value) =
-    value

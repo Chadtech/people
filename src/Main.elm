@@ -4,6 +4,7 @@ import AllConversations
 import AllPersons
 import Browser
 import Browser.Navigation as Navigation
+import Conversation exposing (Conversation)
 import ConversationId exposing (ConversationId)
 import ConversationPage
 import Css.Global
@@ -30,6 +31,8 @@ type Page
     | AllPersons AllPersons.Model
     | NewPerson NewPerson.Model
     | Person PersonPage.Model
+    | LoadingConversation Shared.Model ConversationId
+    | ConversationLoadFailed Shared.Model
     | LoadingPerson Shared.Model PersonId
     | PersonLoadFailed Shared.Model
     | PageNotFound Shared.Model
@@ -45,6 +48,7 @@ type Msg
     | PersonMsg PersonPage.Msg
     | AllConversationsMsg AllConversations.Msg
     | ConversationMsg ConversationId ConversationPage.Msg
+    | ConversationResponseReceived ConversationId (Remote Conversation)
     | LoadedPersonPage PersonId (Remote PersonPageFlags)
     | SidebarMsg Sidebar.Msg
     | DevelopmentDataResponseReceived (Maybe Route) (Maybe ())
@@ -98,6 +102,12 @@ getShared page =
         Person personModel ->
             PersonPage.shared personModel
 
+        LoadingConversation sharedModel _ ->
+            sharedModel
+
+        ConversationLoadFailed sharedModel ->
+            sharedModel
+
         LoadingPerson sharedModel _ ->
             sharedModel
 
@@ -132,6 +142,12 @@ setShared sharedModel page =
         Person personModel ->
             Person (PersonPage.setShared sharedModel personModel)
 
+        LoadingConversation _ conversationId ->
+            LoadingConversation sharedModel conversationId
+
+        ConversationLoadFailed _ ->
+            ConversationLoadFailed sharedModel
+
         LoadingPerson _ personId ->
             LoadingPerson sharedModel personId
 
@@ -157,9 +173,9 @@ handleRouteChange maybeRoute sharedModel =
                 |> Tuple.mapSecond (E.map AllConversationsMsg)
 
         Just (Route.Conversation id) ->
-            ConversationPage.init sharedModel id
-                |> Tuple.mapFirst Conversation
-                |> Tuple.mapSecond (E.map (ConversationMsg id))
+            ( LoadingConversation sharedModel id
+            , E.fetch (ConversationResponseReceived id) (Conversation.getConversation id)
+            )
 
         Just Route.AllPersons ->
             AllPersons.init sharedModel
@@ -243,7 +259,7 @@ update msg page =
         ConversationMsg id conversationMsg ->
             case page of
                 Conversation model ->
-                    if model.conversationId == id then
+                    if model.conversation.id == id then
                         ConversationPage.update conversationMsg model
                             |> Tuple.mapFirst Conversation
                             |> Tuple.mapSecond (E.map (ConversationMsg id))
@@ -260,6 +276,28 @@ update msg page =
                     PersonPage.update personMsg personModel
                         |> Tuple.mapFirst Person
                         |> Tuple.mapSecond (E.map PersonMsg)
+
+                _ ->
+                    ( page, E.none )
+
+        ConversationResponseReceived conversationId result ->
+            case page of
+                LoadingConversation sharedModel requestedId ->
+                    if conversationId /= requestedId then
+                        ( page, E.none )
+
+                    else
+                        case result of
+                            Remote.Found conversation ->
+                                ConversationPage.init sharedModel conversation
+                                    |> Tuple.mapFirst Conversation
+                                    |> Tuple.mapSecond (E.map (ConversationMsg conversationId))
+
+                            Remote.Failed ->
+                                ( ConversationLoadFailed sharedModel, E.none )
+
+                            Remote.NotFound ->
+                                ( PageNotFound sharedModel, E.none )
 
                 _ ->
                     ( page, E.none )
@@ -325,7 +363,7 @@ pageDocument page =
             AllConversations.view model |> Document.map AllConversationsMsg
 
         Conversation model ->
-            ConversationPage.view model |> Document.map (ConversationMsg model.conversationId)
+            ConversationPage.view model |> Document.map (ConversationMsg model.conversation.id)
 
         AllPersons allPersonsModel ->
             AllPersons.view allPersonsModel
@@ -338,6 +376,24 @@ pageDocument page =
         Person personModel ->
             PersonPage.document personModel
                 |> Document.map PersonMsg
+
+        LoadingConversation _ _ ->
+            { title = "Loading conversation"
+            , body =
+                [ H.p
+                    [ A.css [ S.p4 ], A.attribute "role" "status" ]
+                    [ H.text "Loading conversation…" ]
+                ]
+            }
+
+        ConversationLoadFailed _ ->
+            { title = "Could not load conversation"
+            , body =
+                [ H.p
+                    [ A.css [ S.p4 ], A.attribute "role" "alert" ]
+                    [ H.text "Could not load this conversation. Reload to retry." ]
+                ]
+            }
 
         LoadingPerson _ _ ->
             { title = "Loading person"
@@ -392,7 +448,7 @@ subscriptions page =
     case page of
         Conversation model ->
             ConversationPage.subscriptions
-                |> Sub.map (ConversationMsg model.conversationId)
+                |> Sub.map (ConversationMsg model.conversation.id)
 
         _ ->
             Sub.none

@@ -10,6 +10,9 @@ import People.DomainInstances ()
 import qualified Revision
 
 import qualified Chat
+import Conversation (Conversation)
+import qualified Conversation
+import qualified Generation
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (concurrently_)
 import Control.Exception (SomeException, try)
@@ -18,6 +21,8 @@ import qualified ConversationId
 import Data.Aeson (object)
 import qualified Data.ByteString as BS
 import Data.Either (isLeft)
+import Data.List (sort)
+import Data.Maybe (isNothing)
 import Data.IORef
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as Text
@@ -30,6 +35,7 @@ import qualified People.Database as Database
 import qualified People.OpenAI as OpenAI
 import qualified People.Prompt as Prompt
 import qualified People.Worker as Worker
+import Person (Person)
 import qualified Person
 import qualified PersonId
 import System.Environment (getArgs)
@@ -47,6 +53,36 @@ mustFail operation = do
         Right _ -> ioError (userError "Expected transaction rejection")
 
 
+checkConversationPageFlags :: Database.Database -> IO ()
+checkConversationPageFlags database = do
+    flags <- Database.runTransaction database Conversation.getAllConversationsPageFlags
+    conversations <- Database.runTransaction database Conversation.getConversations
+    people <- Database.runTransaction database Person.getAllPersons
+    let
+        conversationIds :: [ConversationId.ConversationId]
+        conversationIds =
+            concatMap
+                (\flag -> case flag of
+                    Conversation.ConversationFlag conversation -> [conversation.id]
+                    Conversation.PersonFlag _ -> []
+                )
+                flags
+        personIds :: [PersonId.PersonId]
+        personIds =
+            concatMap
+                (\flag -> case flag of
+                    Conversation.ConversationFlag _ -> []
+                    Conversation.PersonFlag person -> [person.id]
+                )
+                flags
+    assert
+        (sort conversationIds == sort (map (\conversation -> conversation.id) conversations))
+        "Page flags preserve every conversation exactly once"
+    assert
+        (sort personIds == sort (map (\person -> person.id) people))
+        "Page flags preserve every person exactly once"
+
+
 main :: IO ()
 main = do
     [url] <- getArgs
@@ -54,7 +90,9 @@ main = do
     let
         run :: Database.Transaction a -> IO a
         run = Database.runTransaction database
+    checkConversationPageFlags database
     personId <- run (Person.createNewPerson "MVP integration person")
+    checkConversationPageFlags database
     Just initial <- run (Person.loadPersonPage personId)
     saved <-
         run
@@ -84,29 +122,48 @@ main = do
             (Person.updatePersonIdentity personId initial.person.revision "Stale" "Stale")
         )
     conversationId <-
-        run (Chat.createConversation "MVP integration conversation" personId)
+        run (Conversation.createConversation "MVP integration conversation" personId)
+    let
+        conversationNumber :: Word64
+        ConversationId.ConversationId conversationNumber = conversationId
+        personNumber :: Word64
+        PersonId.PersonId personNumber = personId
+    assert
+        (conversationNumber == personNumber)
+        "Page flag coverage exercises overlapping numeric IDs"
+    checkConversationPageFlags database
+    otherConversationId <-
+        run (Conversation.createConversation "Other integration conversation" personId)
+    Just focusedConversation <- run (Conversation.getConversation conversationId)
+    Just otherConversation <- run (Conversation.getConversation otherConversationId)
+    assert
+        (focusedConversation.id == conversationId && otherConversation.id == otherConversationId)
+        "Conversation detail returns only the requested conversation"
+    missingConversation <-
+        run (Conversation.getConversation (ConversationId.ConversationId 999999))
+    assert (isNothing missingConversation) "Missing conversation detail returns Nothing"
     empty <- run (Chat.getMessages conversationId)
     assert (null empty) "Empty row decoding"
-    members <- run (Chat.getParticipants conversationId)
+    members <- run (Conversation.getParticipants conversationId)
     print (length members)
     generationId <- run (Chat.requestTurn conversationId 0 personId "Hello")
     putStrLn "Checking duplicate request"
     mustFail (run (Chat.requestTurn conversationId 0 personId "Duplicate"))
-    run (Chat.claimGeneration generationId 180)
+    run (Generation.claimGeneration generationId 180)
     putStrLn "Checking duplicate claim"
-    mustFail (run (Chat.claimGeneration generationId 180))
-    run (Chat.savePrompt generationId "Test prompt")
-    Just storedPrompt <- run (Chat.getGenerationPrompt conversationId generationId)
+    mustFail (run (Generation.claimGeneration generationId 180))
+    run (Generation.savePrompt generationId "Test prompt")
+    Just storedPrompt <- run (Generation.getGenerationPrompt conversationId generationId)
     assert (storedPrompt == "Test prompt") "On-demand prompt round trip"
     missingPrompt <-
         run
-            (Chat.getGenerationPrompt (ConversationId.ConversationId 999999) generationId)
+            (Generation.getGenerationPrompt (ConversationId.ConversationId 999999) generationId)
     assert (missingPrompt == Nothing) "Prompt lookup respects conversation identity"
-    summaries <- run (Chat.getGenerationSummaries conversationId)
+    summaries <- run (Generation.getGenerationSummaries conversationId)
     assert (length summaries == 1) "Lightweight generation summary round trip"
-    runningPhase <- run (Chat.getGenerationPhase generationId)
+    runningPhase <- run (Generation.getGenerationPhase generationId)
     assert
-        (case runningPhase of Just Chat.Running -> True; _ -> False)
+        (case runningPhase of Just Generation.Running -> True; _ -> False)
         "Single-generation phase lookup"
     run
         ( Chat.finishGeneration
@@ -134,9 +191,9 @@ main = do
                 ""
             )
         )
-    conversationRows <- run Chat.getConversations
+    conversationRows <- run Conversation.getConversations
     let
-        conversation :: Chat.Conversation
+        conversation :: Conversation
         [conversation] = filter (\c -> c.id == conversationId) conversationRows
     assert (conversation.note == "Shared rhythm plan") "Shared note round trip"
     [firstRevision] <- run (Chat.getNoteRevisions conversationId)
@@ -147,7 +204,7 @@ main = do
         "Note revision records its source generation"
     cancelledId <-
         run (Chat.requestTurn conversationId conversation.revision personId "")
-    run (Chat.claimGeneration cancelledId 180)
+    run (Generation.claimGeneration cancelledId 180)
     run (Chat.stopConversation conversationId)
     putStrLn "Checking stale completion"
     mustFail
@@ -166,9 +223,9 @@ main = do
     assert
         (length finalMessages == 2 && length finalGoals == 1)
         "Cancelled results cannot mutate history or goals"
-    afterStop <- run Chat.getConversations
+    afterStop <- run Conversation.getConversations
     let
-        stopped :: Chat.Conversation
+        stopped :: Conversation
         [stopped] = filter (\c -> c.id == conversationId) afterStop
     assert
         (stopped.note == "Shared rhythm plan" && stopped.remainingTurns == 0)
@@ -178,7 +235,7 @@ main = do
     [otherGoal] <- run (Goal.getGoals otherPerson)
     protectedId <-
         run (Chat.requestTurn conversationId stopped.revision personId "")
-    run (Chat.claimGeneration protectedId 180)
+    run (Generation.claimGeneration protectedId 180)
     mustFail
         ( run
             ( Chat.finishGeneration
@@ -193,9 +250,9 @@ main = do
     rolledBackMessages <- run (Chat.getMessages conversationId)
     rolledBackGoals <- run (Goal.getGoals personId)
     rolledBackMemories <- run (Memory.getMemories personId)
-    rolledBackConversations <- run Chat.getConversations
+    rolledBackConversations <- run Conversation.getConversations
     let
-        rolledBack :: Chat.Conversation
+        rolledBack :: Conversation
         [rolledBack] = filter (\c -> c.id == conversationId) rolledBackConversations
     assert
         ( length rolledBackMessages == 2
@@ -228,25 +285,25 @@ main = do
     assert
         (case untouched.status of Goal.Active -> True; _ -> False)
         "Another person's goal is unchanged"
-    latestRows <- run Chat.getConversations
+    latestRows <- run Conversation.getConversations
     let
-        latest :: Chat.Conversation
+        latest :: Conversation
         [latest] = filter (\c -> c.id == conversationId) latestRows
-    run (Chat.setRunLength conversationId latest.revision 255)
-    scheduledRows <- run Chat.getScheduledConversations
+    run (Conversation.setRunLength conversationId latest.revision 255)
+    scheduledRows <- run Conversation.getScheduledConversations
     let
-        scheduled :: Chat.Conversation
+        scheduled :: Conversation
         [scheduled] = filter (\c -> c.id == conversationId) scheduledRows
     assert (scheduled.remainingTurns == 20) "Run length is capped"
     budgetId <- run (Chat.requestTurn conversationId scheduled.revision personId "")
-    busyRows <- run Chat.getScheduledConversations
+    busyRows <- run Conversation.getScheduledConversations
     assert
         (null (filter (\c -> c.id == conversationId) busyRows))
         "Busy conversations cannot be scheduled twice"
     run (Chat.failGeneration budgetId "Deliberate test failure")
-    failedRows <- run Chat.getConversations
+    failedRows <- run Conversation.getConversations
     let
-        failed :: Chat.Conversation
+        failed :: Conversation
         [failed] = filter (\c -> c.id == conversationId) failedRows
     assert (failed.remainingTurns == 0) "Failure stops further paid calls"
     putStrLn "Checking persisted autonomy and competing workers"
@@ -259,9 +316,9 @@ main = do
                 "Patient and analytical."
                 "Explore sound."
             )
-    autoId <- run (Chat.createConversation "Autonomy integration" personId)
-    run (Chat.addParticipant autoId otherPerson)
-    run (Chat.setAutonomy autoId 0 True 60)
+    autoId <- run (Conversation.createConversation "Autonomy integration" personId)
+    run (Conversation.addParticipant autoId otherPerson)
+    run (Conversation.setAutonomy autoId 0 True 60)
     calls <- newIORef (0 :: Int)
     let
         generate :: Prompt.Prompt -> IO OpenAI.Outcome
@@ -296,13 +353,13 @@ main = do
     assert (count == 1) "Competing workers and immediate repolls generate once"
     autoMessages <- run (Chat.getMessages autoId)
     assert (length autoMessages == 1) "Autonomy begins without a user message"
-    autoRows <- run Chat.getConversations
+    autoRows <- run Conversation.getConversations
     let
-        automatic :: Chat.Conversation
+        automatic :: Conversation
         [automatic] = filter (\c -> c.id == autoId) autoRows
     assert automatic.autonomous "Autonomy stays enabled after completion"
-    run (Chat.setAutonomy autoId automatic.revision False 60)
-    run (Chat.setRunLength autoId (automatic.revision + 1) 2)
+    run (Conversation.setAutonomy autoId automatic.revision False 60)
+    run (Conversation.setRunLength autoId (automatic.revision + 1) 2)
     cycleOnce database
     cycleOnce database
     cycleOnce database
@@ -331,37 +388,34 @@ main = do
         )
         "Two AI participants create and revise a shared artifact"
     putStrLn "Checking expired worker recovery"
-    recoveryRows <- run Chat.getConversations
+    recoveryRows <- run Conversation.getConversations
     let
-        recoverable :: Chat.Conversation
+        recoverable :: Conversation
         [recoverable] = filter (\c -> c.id == autoId) recoveryRows
-    run (Chat.setAutonomy autoId recoverable.revision True 60)
+    run (Conversation.setAutonomy autoId recoverable.revision True 60)
     lostId <- run (Chat.requestTurn autoId (recoverable.revision + 1) personId "")
-    run (Chat.claimGeneration lostId 1)
+    run (Generation.claimGeneration lostId 1)
     mustFail (run (Chat.expireGeneration lostId))
     threadDelay 1200000
-    mustFail (run (Chat.savePrompt lostId "Too late"))
+    mustFail (run (Generation.savePrompt lostId "Too late"))
     mustFail
         (run (Chat.finishGeneration lostId "Late reply" "" "" Nothing "Late note"))
     cycleOnce restartedConnection
-    recoveredRows <- run Chat.getConversations
+    recoveredRows <- run Conversation.getConversations
     let
-        recovered :: Chat.Conversation
+        recovered :: Conversation
         [recovered] = filter (\c -> c.id == autoId) recoveredRows
     assert
         (not recovered.autonomous && recovered.remainingTurns == 0)
         "Expired work pauses autonomous paid calls"
-    recoveredGenerations <- run (Chat.getGenerations autoId)
-    let
-        expired :: Chat.Generation
-        [expired] = filter (\g -> g.id == lostId) recoveredGenerations
+    expiredPhase <- run (Generation.getGenerationPhase lostId)
     assert
-        (case expired.phase of Chat.Failed -> True; _ -> False)
+        (case expiredPhase of Just Generation.Failed -> True; _ -> False)
         "Expired generation is visibly failed"
     finalCount <- readIORef calls
     assert (finalCount == 3) "Recovery does not repeat the uncertain API call"
     putStrLn "Checking memory selection under history pressure"
-    promptId <- run (Chat.createConversation "Prompt budget integration" personId)
+    promptId <- run (Conversation.createConversation "Prompt budget integration" personId)
     run (Goal.createGoal personId "REQUIRED-GOAL: Compare rhythm structures.")
     run
         ( Memory.createMemory
@@ -393,7 +447,7 @@ main = do
                         ("Older question " <> T.pack (show n) <> T.replicate 1000 "é")
                     )
                 )
-        run (Chat.claimGeneration queued 180)
+        run (Generation.claimGeneration queued 180)
         run
             ( Chat.finishGeneration
                 queued
@@ -406,9 +460,9 @@ main = do
                 ""
             )
     Just promptPerson <- run (Person.loadPersonPage personId)
-    promptRows <- run Chat.getConversations
+    promptRows <- run Conversation.getConversations
     let
-        promptConversation :: Chat.Conversation
+        promptConversation :: Conversation
         [promptConversation] = filter (\c -> c.id == promptId) promptRows
     promptHistory <- run (Chat.getMessages promptId)
     promptGoals <- run (Goal.getGoals personId)
@@ -477,7 +531,7 @@ main = do
                 promptPerson.person.aspirations
             )
     cancellationId <-
-        run (Chat.createConversation "Worker cancellation integration" personId)
+        run (Conversation.createConversation "Worker cancellation integration" personId)
     cancelledTurn <-
         run (Chat.requestTurn cancellationId 0 personId "Please stop this turn.")
     finishedModel <- newIORef False
@@ -492,9 +546,9 @@ main = do
     Worker.runCycle database (const (object [])) stoppedModel
     modelFinished <- readIORef finishedModel
     assert (not modelFinished) "Cancellation interrupts the pending model request"
-    stoppedPhase <- run (Chat.getGenerationPhase cancelledTurn)
+    stoppedPhase <- run (Generation.getGenerationPhase cancelledTurn)
     assert
-        (case stoppedPhase of Just Chat.Cancelled -> True; _ -> False)
+        (case stoppedPhase of Just Generation.Cancelled -> True; _ -> False)
         "Worker observes cancelled phase"
     cancellationMessages <- run (Chat.getMessages cancellationId)
     cancellationNotes <- run (Chat.getNoteRevisions cancellationId)
@@ -513,9 +567,9 @@ main = do
     seed
     seededPeople <- run Person.getAllPersons
     let
-        ada :: Person.Person
+        ada :: Person
         [ada] = filter (\p -> p.name == "Ada") seededPeople
-        sam :: Person.Person
+        sam :: Person
         [sam] = filter (\p -> p.name == "Sam") seededPeople
     assert
         (not (T.null ada.identity) && not (T.null sam.identity))
@@ -525,11 +579,11 @@ main = do
     assert
         (length adaGoals == 1 && length adaMemories == 1)
         "Fixture goals and memories are seeded once"
-    seededConversations <- run Chat.getConversations
+    seededConversations <- run Conversation.getConversations
     let
-        starter :: Chat.Conversation
+        starter :: Conversation
         [starter] = filter (\c -> c.title == "Long-running conversation") seededConversations
-    starterParticipants <- run (Chat.getParticipants starter.id)
+    starterParticipants <- run (Conversation.getParticipants starter.id)
     assert
         ( length starterParticipants == 2
             && not starter.autonomous
@@ -550,7 +604,7 @@ main = do
         (preservedAda.person.identity == "Identity changed during this session.")
         "Reseeding must preserve accumulated edits"
     reseededPeople <- run Person.getAllPersons
-    reseededConversations <- run Chat.getConversations
+    reseededConversations <- run Conversation.getConversations
     assert
         ( length seededPeople == length reseededPeople
             && length seededConversations == length reseededConversations

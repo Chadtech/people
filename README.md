@@ -167,7 +167,12 @@ workarounds are localized and covered by lifecycle checks.
 
 `Person.db`, `Goal.db`, and `Memory.db` own their respective tables and operations.
 `Origin.db` shares curated/AI attribution without a dependency between goals and
-memories. `Chat.db` coordinates atomic generation results across those modules.
+memories. `Conversation.db` owns conversation records, participants, creation,
+queries, and run/autonomy settings. `Generation.db` owns generation records,
+phase and prompt queries, claims, and lease queries. `Chat.db` owns messages and
+note revisions and coordinates atomic turn requests, completion, failure, and
+cancellation across those modules. Their shared backend tables are ordinary
+exports, not client endpoints; the coordinating operations remain transactions.
 `Fixtures.fillDevelopmentData` is the only seeding endpoint and uses one marker.
 The Elm person page is `PersonPage.elm`; goals and memories are part of that page.
 
@@ -184,6 +189,19 @@ filters into the final WHERE clause and mishandled nested union presence checks.
 The app therefore retains the working separate requests. Do not replace them
 with that combined query without testing empty and missing collections as well
 as populated conversations. Prompt snapshots and note history remain on demand.
+
+The conversations index uses `Conversation.getAllConversationsPageFlags`, a single
+endpoint returning top-level tagged rows. The Elm page splits them into its
+conversation and people lists. Keep this response shape: a record containing
+two `Rows` fields is unsupported by Acadia 0.3.0. The integration suite compares
+both collections with their standalone endpoints when empty, with only people,
+and with both people and conversations.
+
+The tagged query uses disjoint `(False, conversationId)` and `(True, personId)`
+keys, so a combined conversation/person row is unreachable. Expose only
+`ConversationFlag` and `PersonFlag`; an unused combined constructor generates a
+particularly deep Elm decoder. Other used decoders still contain nested calls,
+so removing that constructor is not by itself proof that IDE analysis is fixed.
 
 `Store.require` returns a matching row or fails the transaction; `ensure` checks
 existence without returning it; `update` checks before changing it. Its

@@ -1,5 +1,14 @@
 # Code style
 
+## Same-name type imports
+
+In Elm, Acadia, and Haskell, import a type unqualified when its module is named
+after that type, unless the name conflicts locally. For example, use
+`import Conversation exposing (Conversation)` in Elm and Acadia, and
+`import Conversation (Conversation)` in Haskell. Write `Conversation`, not
+`Conversation.Conversation`, in type signatures. Keep functions qualified; in
+Haskell, add a separate qualified import when needed for functions or constructors.
+
 ## Elm imports
 
 Use these aliases consistently:
@@ -91,7 +100,9 @@ Shared provenance lives in `Origin`, so goals and memories need not depend on
 each other. `PersonPage.elm` owns its goals and memories section directly; avoid
 separate model/update/message modules for ordinary page subsections. Keep one
 `Msg` type and attach the originating ID to asynchronous responses that may
-arrive after navigation.
+arrive after navigation. When `Main` tags page messages with that ID and checks
+it before dispatching to the page, keep the guard there; page messages do not
+need to repeat the ID or its check.
 
 Use `Remote data = Failed | NotFound | Found data` for optional remote resources.
 `Effect.fetch` translates the transport failure and optional result directly,

@@ -165,7 +165,10 @@ drafts. Goals can be completed, abandoned, and reopened.
 AllConversations owns the conversation list and creation form. ConversationPage
 owns one conversation and its controls, with an All conversations link back to
 the list. Keep list and detail page state separate; refresh only the open detail
-page, and ignore responses originating from a different conversation.
+page, and ignore responses originating from a different conversation. Fetch and
+store the detail conversation by ID instead of loading and filtering the full list.
+The route owns initial loading, failure, and not-found states; initialize the
+detail page only with an existing conversation, so its model requires that value.
 
 Conversation autonomy is opt-in. Show its current interval and paid-call behavior
 beside the controls. Stop cancels the active turn and disables autonomy; the
@@ -226,6 +229,7 @@ experiment into an established preference or expand a small task into a redesign
 
 | Date | Status | Decision and reason |
 | --- | --- | --- |
+| 2026-09-12 | Established | Conversation detail fetches and stores only its own conversation by ID; the full list belongs to AllConversations. Load before initializing the detail page so its conversation is required. |
 | 2026-09-07 | Established | Removed sidebar navigation icons following user feedback. Render the navigation list only in the expanded sidebar and keep the open-state decision at the sidebar level. |
 | 2026-09-07 | Established | Give all links a shared light-blue, underlined treatment with brighter hover/focus and a focus outline, following feedback that links were hard to recognize. |
 | 2026-09-07 | Established | Use available page width, content-sized action buttons, consistent form gaps, and an inset select chevron following screenshot feedback. |

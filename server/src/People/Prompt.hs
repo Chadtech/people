@@ -11,6 +11,7 @@ import qualified Note
 import People.DomainInstances ()
 
 import qualified Chat
+import Conversation (Conversation)
 import Data.Aeson (Value, object, (.=))
 import qualified Data.ByteString as BS
 import Data.List (sortOn)
@@ -21,7 +22,7 @@ import qualified Data.Text.Encoding as Text
 import qualified Goal
 import qualified Memory
 import qualified Origin
-import qualified Person
+import Person (Person)
 import qualified PersonId
 
 
@@ -38,9 +39,9 @@ type Block = (Text, Text, Text)
 
 
 buildPrompt
-    :: Person.Person
-    -> [Person.Person]
-    -> Chat.Conversation
+    :: Person
+    -> [Person]
+    -> Conversation
     -> [Chat.Message]
     -> [Goal.Goal]
     -> [Memory.Memory]
@@ -217,10 +218,10 @@ matches query keywords = null keys || any (`T.isInfixOf` query) keys
         keys = filter (not . T.null) (map (T.strip . T.toCaseFold) (T.splitOn "," keywords))
 
 
-findPerson :: PersonId.PersonId -> [Person.Person] -> Maybe Person.Person
+findPerson :: PersonId.PersonId -> [Person] -> Maybe Person
 findPerson target = go
     where
-        go :: [Person.Person] -> Maybe Person.Person
+        go :: [Person] -> Maybe Person
         go [] = Nothing
         go (p : ps) = if sameId p.id target then Just p else go ps
         sameId :: PersonId.PersonId -> PersonId.PersonId -> Bool

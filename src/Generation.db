@@ -1,0 +1,157 @@
+database module Generation exposing
+    ( Generation
+    , GenerationSummary
+    , Phase(..)
+    , generationIds
+    , generations
+    , endpoint claimGeneration
+    , endpoint getExpiredGenerations
+    , endpoint getGenerationPhase
+    , endpoint getGenerationPrompt
+    , endpoint getGenerationSummaries
+    , endpoint getPendingGenerations
+    , endpoint savePrompt
+    )
+
+import Conversation
+import ConversationId exposing (ConversationId)
+import Cookies exposing (Cookies)
+import GenerationError exposing (GenerationError(..))
+import GenerationId exposing (GenerationId)
+import LeaseSeconds exposing (LeaseSeconds(..))
+import PersonId exposing (PersonId)
+import PromptSnapshot exposing (PromptSnapshot(..))
+import Rows as R exposing (Rows)
+import Security
+import Sequence as Seq exposing (Sequence)
+import Store
+import Table exposing (Table)
+import Time exposing (Posix)
+
+
+type Phase
+    = Pending
+    | Running
+    | Completed
+    | Failed
+    | Cancelled
+
+
+type alias Generation =
+    { id : GenerationId
+    , conversationId : ConversationId
+    , speaker : PersonId
+    , phase : Phase
+    , prompt : PromptSnapshot
+    , leaseUntil : Posix
+    , error : GenerationError
+    }
+
+
+type alias GenerationSummary =
+    { id : GenerationId
+    , speaker : PersonId
+    , phase : Phase
+    , error : GenerationError
+    }
+
+
+generations : Table Security.Unrestricted Generation
+generations :=
+    Table.table
+        { primary = .id
+        , security = Security.unrestricted
+        , indexes = [ Table.btree Table.NotUnique .conversationId ]
+        , constraints = [ Table.foreignKey .conversationId (Table.references Conversation.conversations .id) ]
+        }
+
+
+generationIds : Sequence GenerationId
+generationIds :=
+    Seq.uint64 GenerationId.fromUInt64
+
+
+getGenerationSummaries :
+    Cookies
+    -> ConversationId
+    -> Transaction (Rows GenerationSummary)
+getGenerationSummaries _ conversationId =
+    Table.access generations Security.Unrestricted
+        |> R.filter (\row -> row.conversationId == conversationId)
+        |> R.map
+            (\row ->
+                { id = row.id
+                , speaker = row.speaker
+                , phase = row.phase
+                , error = row.error
+                }
+            )
+        |> R.selectAll
+
+
+getGenerationPrompt :
+    Cookies
+    -> ConversationId
+    -> GenerationId
+    -> Transaction (Maybe PromptSnapshot)
+getGenerationPrompt _ conversationId id =
+    Table.access generations Security.Unrestricted
+        |> R.filter (\row -> row.conversationId == conversationId && row.id == id)
+        |> R.map .prompt
+        |> R.selectMaybe
+
+
+getGenerationPhase : Cookies -> GenerationId -> Transaction (Maybe Phase)
+getGenerationPhase _ id =
+    Table.access generations Security.Unrestricted
+        |> R.filter (\row -> row.id == id)
+        |> R.map .phase
+        |> R.selectMaybe
+
+
+getPendingGenerations : Cookies -> Transaction (Rows Generation)
+getPendingGenerations _ =
+    Table.access generations Security.Unrestricted
+        |> R.filter (\row -> row.phase == Pending)
+        |> R.selectAll
+
+
+getExpiredGenerations : Cookies -> Transaction (Rows Generation)
+getExpiredGenerations _ =
+    let
+        now : Posix
+        now :=
+            Time.now
+    in
+    Table.access generations Security.Unrestricted
+        |> R.filter (\row -> row.phase == Running && row.leaseUntil <= now)
+        |> R.selectAll
+
+
+claimGeneration : Cookies -> GenerationId -> LeaseSeconds -> Transaction ()
+claimGeneration _ id (LeaseSeconds leaseSeconds) =
+    let
+        now : Posix
+        now :=
+            Time.now
+    in
+    Store.update generations
+        (\row -> row.id == id && row.phase == Pending)
+        (\row ->
+            { row
+                | phase = Running
+                , leaseUntil = Time.plus (max 1 (min 180 leaseSeconds)) Time.Seconds now
+            }
+        )
+
+
+savePrompt : Cookies -> GenerationId -> PromptSnapshot -> Transaction ()
+savePrompt _ id prompt =
+    let
+        now : Posix
+        now :=
+            Time.now
+    in
+    Store.update generations
+        (\row -> row.id == id && row.phase == Running && row.leaseUntil > now)
+        (\row -> { row | prompt = prompt })

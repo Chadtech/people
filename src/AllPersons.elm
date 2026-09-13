@@ -13,7 +13,7 @@ import Document exposing (Document)
 import Effect as E exposing (Eff)
 import Html.Styled as H exposing (Html)
 import Html.Styled.Attributes as A
-import Person
+import Person exposing (Person)
 import PersonId.Util as PersonIdUtil
 import Route
 import Shared
@@ -29,12 +29,12 @@ type alias Model =
 
 type People
     = Loading
-    | Loaded (List Person.Person)
+    | Loaded (List Person)
     | Failed
 
 
 type Msg
-    = PeopleResponseReceived (Maybe (List Person.Person))
+    = PeopleResponseReceived (Maybe (List Person))
     | RetryButtonClicked
 
 
@@ -119,7 +119,7 @@ peopleView people =
                 (List.map personLink persons)
 
 
-personLink : Person.Person -> Html msg
+personLink : Person -> Html msg
 personLink person =
     H.li []
         [ H.a

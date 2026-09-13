@@ -11,7 +11,7 @@ import MemoryContent exposing (MemoryContent(..))
 import MemoryId exposing (MemoryId)
 import MemoryKeywords exposing (MemoryKeywords(..))
 import Origin exposing (Origin(..))
-import Person
+import Person exposing (Person)
 import PersonId exposing (PersonId)
 import Rows as R exposing (Rows)
 import Security
@@ -60,7 +60,7 @@ createMemory _ personId content keywords =
 insertMemory : PersonId -> MemoryContent -> MemoryKeywords -> Origin -> Transaction ()
 insertMemory personId content (MemoryKeywords keywords) source =
     let
-        person : Person.Person
+        person : Person
         person :=
             Person.requirePerson personId
 

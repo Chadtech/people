@@ -1,6 +1,6 @@
 module AllConversations exposing (Model, Msg, init, setShared, shared, update, view)
 
-import Chat
+import Conversation exposing (Conversation)
 import ConversationId exposing (ConversationId)
 import ConversationId.Util as ConversationIdUtil
 import ConversationTitle
@@ -11,7 +11,7 @@ import Effect as E exposing (Eff)
 import Html.Styled as H exposing (Html)
 import Html.Styled.Attributes as A
 import Html.Styled.Events as Ev
-import Person
+import Person exposing (Person)
 import PersonId.Util as PersonIdUtil
 import Route
 import Shared
@@ -21,8 +21,8 @@ import View.Button as Button
 
 type alias Model =
     { shared : Shared.Model
-    , conversations : Maybe (List Chat.Conversation)
-    , people : List Person.Person
+    , conversations : Maybe (List Conversation)
+    , people : List Person
     , title : String
     , speaker : String
     , pending : Bool
@@ -31,7 +31,7 @@ type alias Model =
 
 
 type Msg
-    = PageFlagsResponseReceived (Maybe (List Chat.AllConversationsPageFlag))
+    = PageFlagsResponseReceived (Maybe (List Conversation.AllConversationsPageFlag))
     | TitleInputChanged String
     | SpeakerSelectionChanged String
     | CreateButtonClicked
@@ -55,7 +55,7 @@ init sharedModel =
 
 load : Eff Msg
 load =
-    E.attempt PageFlagsResponseReceived Chat.getAllConversationsPageFlags
+    E.attempt PageFlagsResponseReceived Conversation.getAllConversationsPageFlags
 
 
 shared : Model -> Shared.Model
@@ -113,7 +113,7 @@ update msg model =
                         ( { model | pending = True, error = Nothing }
                         , E.attempt
                             ConversationCreatedResponseReceived
-                            (Chat.createConversation
+                            (Conversation.createConversation
                                 (ConversationTitle.ConversationTitle (String.trim model.title))
                                 personId
                             )
@@ -143,25 +143,19 @@ update msg model =
 
 
 type alias PageFlags =
-    { conversations : List Chat.Conversation
-    , people : List Person.Person
+    { conversations : List Conversation
+    , people : List Person
     }
 
 
-addPageFlag : Chat.AllConversationsPageFlag -> PageFlags -> PageFlags
+addPageFlag : Conversation.AllConversationsPageFlag -> PageFlags -> PageFlags
 addPageFlag flag flags =
     case flag of
-        Chat.ConversationFlag conversation ->
+        Conversation.ConversationFlag conversation ->
             { flags | conversations = conversation :: flags.conversations }
 
-        Chat.PersonFlag person ->
+        Conversation.PersonFlag person ->
             { flags | people = person :: flags.people }
-
-        Chat.ConversationAndPersonFlag conversation person ->
-            { flags
-                | conversations = conversation :: flags.conversations
-                , people = person :: flags.people
-            }
 
 
 view : Model -> Document Msg
@@ -197,7 +191,7 @@ view model =
 conversationList : Model -> Html Msg
 conversationList model =
     let
-        conversationLink : Chat.Conversation -> Html Msg
+        conversationLink : Conversation -> Html Msg
         conversationLink c =
             H.li
                 []
@@ -270,7 +264,7 @@ conversationList model =
 personSelector : Model -> Html Msg
 personSelector model =
     let
-        personOption : Person.Person -> Html Msg
+        personOption : Person -> Html Msg
         personOption p =
             H.option
                 [ A.value (PersonIdUtil.toString p.id)

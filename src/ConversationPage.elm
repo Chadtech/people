@@ -13,12 +13,13 @@ import Acadia.Transaction
 import Acadia.UInt64 as UInt64
 import Acadia.UInt8
 import Chat
-import ConversationId exposing (ConversationId)
+import Conversation exposing (Conversation)
 import ConversationTitle.Util as ConversationTitleUtil
 import Css
 import Dict exposing (Dict)
 import Document exposing (Document)
 import Effect as E exposing (Eff)
+import Generation
 import GenerationError.Util as GenerationErrorUtil
 import GenerationId exposing (GenerationId)
 import GenerationId.Util as GenerationIdUtil
@@ -31,7 +32,7 @@ import MessageContent
 import MessageContent.Util as MessageContentUtil
 import MessageId.Util as MessageIdUtil
 import Note.Util as NoteUtil
-import Person
+import Person exposing (Person)
 import PersonId exposing (PersonId)
 import PersonId.Util as PersonIdUtil
 import PromptInspection
@@ -50,16 +51,15 @@ import View.Textarea as Textarea
 
 type alias Model =
     { shared : Shared.Model
-    , conversations : Maybe (List Chat.Conversation)
-    , people : List Person.Person
-    , conversationId : ConversationId
+    , conversation : Conversation
+    , people : List Person
     , messages : List Chat.Message
     , participants : List PersonId
     , noteHistory : Maybe (List Chat.NoteRevision)
     , prompts : Dict String String
     , loadingPrompts : Set String
     , loadingNotes : Bool
-    , generations : List Chat.GenerationSummary
+    , generations : List Generation.GenerationSummary
     , draft : String
     , speaker : String
     , pending : Bool
@@ -69,15 +69,15 @@ type alias Model =
 
 type Msg
     = TickReceived Time.Posix
-    | ConversationsResponseReceived (Maybe (List Chat.Conversation))
-    | PeopleResponseReceived (Maybe (List Person.Person))
-    | MessagesResponseReceived ConversationId (Maybe (List Chat.Message))
-    | ParticipantsResponseReceived ConversationId (Maybe (List PersonId))
-    | GenerationsResponseReceived ConversationId (Maybe (List Chat.GenerationSummary))
+    | ConversationResponseReceived (Remote Conversation)
+    | PeopleResponseReceived (Maybe (List Person))
+    | MessagesResponseReceived (Maybe (List Chat.Message))
+    | ParticipantsResponseReceived (Maybe (List PersonId))
+    | GenerationsResponseReceived (Maybe (List Generation.GenerationSummary))
     | PromptInspectionClicked GenerationId
-    | PromptResponseReceived ConversationId GenerationId (Remote PromptSnapshot.PromptSnapshot)
+    | PromptResponseReceived GenerationId (Remote PromptSnapshot.PromptSnapshot)
     | NoteHistoryClicked
-    | NoteHistoryResponseReceived ConversationId (Maybe (List Chat.NoteRevision))
+    | NoteHistoryResponseReceived (Maybe (List Chat.NoteRevision))
     | DraftInputChanged String
     | SpeakerSelectionChanged String
     | SendButtonClicked
@@ -90,15 +90,14 @@ type Msg
     | TurnResponseReceived (Maybe GenerationId)
 
 
-init : Shared.Model -> ConversationId -> ( Model, Eff Msg )
-init sharedModel conversationId =
+init : Shared.Model -> Conversation -> ( Model, Eff Msg )
+init sharedModel conversation =
     let
         model : Model
         model =
             { shared = sharedModel
-            , conversations = Nothing
+            , conversation = conversation
             , people = []
-            , conversationId = conversationId
             , messages = []
             , participants = []
             , generations = []
@@ -112,7 +111,7 @@ init sharedModel conversationId =
             , error = Nothing
             }
     in
-    ( model, refresh model )
+    ( model, refreshDetails model )
 
 
 shared : Model -> Shared.Model
@@ -133,18 +132,20 @@ subscriptions =
 refresh : Model -> Eff Msg
 refresh model =
     E.batch
-        [ E.attempt ConversationsResponseReceived Chat.getConversations
-        , E.attempt PeopleResponseReceived Person.getAllPersons
-        , E.attempt (MessagesResponseReceived model.conversationId) (Chat.getMessages model.conversationId)
-        , E.attempt (ParticipantsResponseReceived model.conversationId) (Chat.getParticipants model.conversationId)
-        , E.attempt (GenerationsResponseReceived model.conversationId) (Chat.getGenerationSummaries model.conversationId)
+        [ E.fetch ConversationResponseReceived
+            (Conversation.getConversation model.conversation.id)
+        , refreshDetails model
         ]
 
 
-current : Model -> Maybe Chat.Conversation
-current model =
-    model.conversations
-        |> Maybe.andThen (List.filter (\c -> c.id == model.conversationId) >> List.head)
+refreshDetails : Model -> Eff Msg
+refreshDetails model =
+    E.batch
+        [ E.attempt PeopleResponseReceived Person.getAllPersons
+        , E.attempt MessagesResponseReceived (Chat.getMessages model.conversation.id)
+        , E.attempt ParticipantsResponseReceived (Conversation.getParticipants model.conversation.id)
+        , E.attempt GenerationsResponseReceived (Generation.getGenerationSummaries model.conversation.id)
+        ]
 
 
 update : Msg -> Model -> ( Model, Eff Msg )
@@ -157,15 +158,24 @@ update msg model =
             else
                 ( model, refresh model )
 
-        ConversationsResponseReceived result ->
+        ConversationResponseReceived result ->
             case result of
-                Nothing ->
-                    ( { model | error = Just "Could not refresh conversations. Check the connection." }
+                Remote.Failed ->
+                    ( { model
+                        | error = Just "Could not refresh the conversation. Check the connection."
+                      }
                     , E.none
                     )
 
-                Just rows ->
-                    ( { model | conversations = Just rows }, E.none )
+                Remote.NotFound ->
+                    ( { model | error = Just "This conversation is no longer available. Return to All conversations." }
+                    , E.none
+                    )
+
+                Remote.Found conversation ->
+                    ( { model | conversation = conversation }
+                    , E.none
+                    )
 
         PeopleResponseReceived result ->
             case result of
@@ -175,32 +185,20 @@ update msg model =
                 Just rows ->
                     ( { model | people = rows }, E.none )
 
-        MessagesResponseReceived id result ->
-            if id == model.conversationId then
-                ( { model | messages = Maybe.withDefault model.messages result }
-                , E.none
-                )
+        MessagesResponseReceived result ->
+            ( { model | messages = Maybe.withDefault model.messages result }
+            , E.none
+            )
 
-            else
-                ( model, E.none )
+        ParticipantsResponseReceived result ->
+            ( { model | participants = Maybe.withDefault model.participants result }
+            , E.none
+            )
 
-        ParticipantsResponseReceived id result ->
-            if id == model.conversationId then
-                ( { model | participants = Maybe.withDefault model.participants result }
-                , E.none
-                )
-
-            else
-                ( model, E.none )
-
-        GenerationsResponseReceived id result ->
-            if id == model.conversationId then
-                ( { model | generations = Maybe.withDefault model.generations result }
-                , E.none
-                )
-
-            else
-                ( model, E.none )
+        GenerationsResponseReceived result ->
+            ( { model | generations = Maybe.withDefault model.generations result }
+            , E.none
+            )
 
         PromptInspectionClicked generationId ->
             if Set.member (GenerationIdUtil.toString generationId) model.loadingPrompts then
@@ -214,44 +212,40 @@ update msg model =
                             model.loadingPrompts
                   }
                 , E.fetch
-                    (PromptResponseReceived model.conversationId generationId)
-                    (Chat.getGenerationPrompt model.conversationId generationId)
+                    (PromptResponseReceived generationId)
+                    (Generation.getGenerationPrompt model.conversation.id generationId)
                 )
 
-        PromptResponseReceived conversationId generationId result ->
-            if model.conversationId /= conversationId then
-                ( model, E.none )
+        PromptResponseReceived generationId result ->
+            let
+                next : Model
+                next =
+                    { model
+                        | loadingPrompts =
+                            Set.remove
+                                (GenerationIdUtil.toString generationId)
+                                model.loadingPrompts
+                    }
+            in
+            case result of
+                Remote.Found prompt ->
+                    ( { next
+                        | prompts =
+                            Dict.insert
+                                (GenerationIdUtil.toString
+                                    generationId
+                                )
+                                (PromptSnapshotUtil.toString prompt)
+                                next.prompts
+                      }
+                    , E.none
+                    )
 
-            else
-                let
-                    next : Model
-                    next =
-                        { model
-                            | loadingPrompts =
-                                Set.remove
-                                    (GenerationIdUtil.toString generationId)
-                                    model.loadingPrompts
-                        }
-                in
-                case result of
-                    Remote.Found prompt ->
-                        ( { next
-                            | prompts =
-                                Dict.insert
-                                    (GenerationIdUtil.toString
-                                        generationId
-                                    )
-                                    (PromptSnapshotUtil.toString prompt)
-                                    next.prompts
-                          }
-                        , E.none
-                        )
+                Remote.NotFound ->
+                    ( { next | error = Just "That prompt was not found." }, E.none )
 
-                    Remote.NotFound ->
-                        ( { next | error = Just "That prompt was not found." }, E.none )
-
-                    Remote.Failed ->
-                        ( { next | error = Just "Could not load that prompt. Try again." }, E.none )
+                Remote.Failed ->
+                    ( { next | error = Just "Could not load that prompt. Try again." }, E.none )
 
         NoteHistoryClicked ->
             if model.loadingNotes then
@@ -259,32 +253,28 @@ update msg model =
 
             else
                 ( { model | loadingNotes = True }
-                , E.attempt (NoteHistoryResponseReceived model.conversationId) (Chat.getNoteRevisions model.conversationId)
+                , E.attempt NoteHistoryResponseReceived (Chat.getNoteRevisions model.conversation.id)
                 )
 
-        NoteHistoryResponseReceived id result ->
-            if id == model.conversationId then
-                ( { model
-                    | loadingNotes = False
-                    , noteHistory =
-                        case result of
-                            Just revisions ->
-                                Just revisions
+        NoteHistoryResponseReceived result ->
+            ( { model
+                | loadingNotes = False
+                , noteHistory =
+                    case result of
+                        Just revisions ->
+                            Just revisions
 
-                            Nothing ->
-                                model.noteHistory
-                    , error =
-                        if result == Nothing then
-                            Just "Could not load note history. Try again."
+                        Nothing ->
+                            model.noteHistory
+                , error =
+                    if result == Nothing then
+                        Just "Could not load note history. Try again."
 
-                        else
-                            model.error
-                  }
-                , E.none
-                )
-
-            else
-                ( model, E.none )
+                    else
+                        model.error
+              }
+            , E.none
+            )
 
         DraftInputChanged value ->
             ( { model | draft = value }, E.none )
@@ -304,13 +294,13 @@ update msg model =
 
         RunButtonClicked ->
             mutateConversation
-                (\c -> Chat.setRunLength c.id c.revision (TurnCount.TurnCount (Acadia.UInt8.fromInt 6)))
+                (\c -> Conversation.setRunLength c.id c.revision (TurnCount.TurnCount (Acadia.UInt8.fromInt 6)))
                 model
 
         AutonomyButtonClicked ->
             mutateConversation
                 (\c ->
-                    Chat.setAutonomy c.id
+                    Conversation.setAutonomy c.id
                         c.revision
                         True
                         (IntervalSeconds.IntervalSeconds
@@ -330,7 +320,7 @@ update msg model =
                     ( { model | error = Just "Choose a person to add." }, E.none )
 
                 Just personId ->
-                    mutateConversation (\c -> Chat.addParticipant c.id personId) model
+                    mutateConversation (\c -> Conversation.addParticipant c.id personId) model
 
         MutationResponseReceived result ->
             let
@@ -375,29 +365,24 @@ update msg model =
 
 
 mutateConversation :
-    (Chat.Conversation -> Acadia.Transaction.Transaction ())
+    (Conversation -> Acadia.Transaction.Transaction ())
     -> Model
     -> ( Model, Eff Msg )
 mutateConversation transaction model =
-    case current model of
-        Just conversation ->
-            if model.pending then
-                ( model, E.none )
+    if model.pending then
+        ( model, E.none )
 
-            else
-                ( { model | pending = True }
-                , E.attempt MutationResponseReceived (transaction conversation)
-                )
-
-        Nothing ->
-            ( model, E.none )
+    else
+        ( { model | pending = True }
+        , E.attempt MutationResponseReceived (transaction model.conversation)
+        )
 
 
 requestTurn : String -> Model -> ( Model, Eff Msg )
 requestTurn content model =
-    case ( current model, PersonIdUtil.fromString model.speaker ) of
-        ( Just conversation, Just speaker ) ->
-            if model.pending || conversation.activeGeneration /= Nothing then
+    case PersonIdUtil.fromString model.speaker of
+        Just speaker ->
+            if model.pending || model.conversation.activeGeneration /= Nothing then
                 ( model, E.none )
 
             else if not (List.member speaker model.participants) then
@@ -406,8 +391,8 @@ requestTurn content model =
             else
                 ( { model | pending = True, error = Nothing }
                 , E.attempt TurnResponseReceived
-                    (Chat.requestTurn conversation.id
-                        conversation.revision
+                    (Chat.requestTurn model.conversation.id
+                        model.conversation.revision
                         speaker
                         (MessageContent.MessageContent content)
                     )
@@ -419,7 +404,7 @@ requestTurn content model =
 
 view : Model -> Document Msg
 view model =
-    { title = current model |> Maybe.map (.title >> ConversationTitleUtil.toString) |> Maybe.withDefault "Conversation"
+    { title = ConversationTitleUtil.toString model.conversation.title
     , body =
         [ H.div [ A.css [ S.p4, S.col, S.g3, S.wFull ] ]
             [ H.article
@@ -434,20 +419,7 @@ view model =
                     ]
                 ]
                 [ H.h1 [ A.css [ S.textGray3 ] ] [ H.text "Conversation" ]
-                , case current model of
-                    Nothing ->
-                        H.p []
-                            [ H.text
-                                (if model.conversations == Nothing then
-                                    "Loading…"
-
-                                 else
-                                    "Conversation not found."
-                                )
-                            ]
-
-                    Just conversation ->
-                        conversationView model conversation
+                , conversationView model model.conversation
                 , H.p [ A.attribute "role" "status" ] [ H.text (Maybe.withDefault "" model.error) ]
                 ]
             ]
@@ -458,7 +430,7 @@ view model =
 personSelector : Model -> Html Msg
 personSelector model =
     let
-        personOption : Person.Person -> Html Msg
+        personOption : Person -> Html Msg
         personOption p =
             H.option
                 [ A.value (PersonIdUtil.toString p.id)
@@ -483,7 +455,7 @@ personSelector model =
         ]
 
 
-conversationView : Model -> Chat.Conversation -> Html Msg
+conversationView : Model -> Conversation -> Html Msg
 conversationView model conversation =
     H.div [ A.css [ S.col, S.g3 ] ]
         [ H.a
@@ -666,7 +638,7 @@ pre content =
         [ H.text content ]
 
 
-generationView : Model -> Chat.GenerationSummary -> Html Msg
+generationView : Model -> Generation.GenerationSummary -> Html Msg
 generationView model generation =
     H.details [ A.css [ S.col, S.g2 ] ]
         [ H.summary []
@@ -706,20 +678,20 @@ generationView model generation =
         ]
 
 
-phaseName : Chat.Phase -> String
+phaseName : Generation.Phase -> String
 phaseName phase =
     case phase of
-        Chat.Pending ->
+        Generation.Pending ->
             "Queued"
 
-        Chat.Running ->
+        Generation.Running ->
             "Generating"
 
-        Chat.Completed ->
+        Generation.Completed ->
             "Complete"
 
-        Chat.Failed ->
+        Generation.Failed ->
             "Failed"
 
-        Chat.Cancelled ->
+        Generation.Cancelled ->
             "Stopped"
