@@ -1,9 +1,12 @@
 database module Chat exposing
-    ( Message
+    ( ConversationPageFlag(..)
+    , Message
     , NoteRevision
     , endpoint expireGeneration
     , endpoint failGeneration
     , endpoint finishGeneration
+    , endpoint getConversationDetailsFlags
+    , endpoint getConversationPageFlags
     , endpoint getMessages
     , endpoint getNoteRevisions
     , endpoint requestTurn
@@ -27,6 +30,7 @@ import MessageContent exposing (MessageContent(..))
 import MessageId exposing (MessageId)
 import Note exposing (Note(..))
 import Origin
+import Person exposing (Person)
 import PersonId exposing (PersonId)
 import PromptSnapshot exposing (PromptSnapshot(..))
 import Revision exposing (Revision(..))
@@ -89,6 +93,137 @@ getMessages _ conversationId =
     Table.access messages Security.Unrestricted
         |> R.filter (\row -> row.conversationId == conversationId)
         |> R.selectAll
+
+
+
+-- Keep unions left-associated with a single table on the right. Acadia 0.3.0
+-- misdetects presence for a nested right-hand union. Apply scope filters only
+-- after combining rows, otherwise they become unconditional WHERE clauses.
+-- Include a real row key as well as the disjoint side tag: constant-only keys
+-- let this compiler incorrectly simplify the result to the first flag kind.
+
+
+type ConversationPageFlag
+    = ConversationFlag Conversation
+    | PersonFlag Person
+    | MessageFlag Message
+    | ParticipantFlag PersonId
+    | GenerationFlag Generation.GenerationSummary
+
+
+type alias ScopedPageFlag =
+    { key : UInt64
+    , conversationId : Maybe ConversationId
+    , flag : ConversationPageFlag
+    }
+
+
+getConversationDetailsFlags :
+    Cookies
+    -> ConversationId
+    -> Transaction (Rows ConversationPageFlag)
+getConversationDetailsFlags _ conversationId =
+    conversationDetailsRows
+        |> selectPageFlags conversationId
+
+
+getConversationPageFlags : Cookies -> ConversationId -> Transaction (Rows ConversationPageFlag)
+getConversationPageFlags _ conversationId =
+    combinePageRows conversationDetailsRows
+        (Table.access Conversation.conversations Security.Unrestricted
+            |> R.map
+                (\row ->
+                    ScopedPageFlag (ConversationId.toUInt64 row.id)
+                        (Just row.id)
+                        (ConversationFlag row)
+                )
+        )
+        |> selectPageFlags conversationId
+
+
+conversationDetailsRows : Rows ScopedPageFlag
+conversationDetailsRows =
+    let
+        peopleAndMessages : Rows ScopedPageFlag
+        peopleAndMessages =
+            combinePageRows
+                (Person.allPersons
+                    |> R.map
+                        (\row ->
+                            ScopedPageFlag (PersonId.toUInt64 row.id)
+                                Nothing
+                                (PersonFlag row)
+                        )
+                )
+                (Table.access messages Security.Unrestricted
+                    |> R.map
+                        (\row ->
+                            ScopedPageFlag (MessageId.toUInt64 row.id)
+                                (Just row.conversationId)
+                                (MessageFlag row)
+                        )
+                )
+
+        withParticipants : Rows ScopedPageFlag
+        withParticipants =
+            combinePageRows peopleAndMessages
+                (Table.access Conversation.participants Security.Unrestricted
+                    |> R.map
+                        (\row ->
+                            ScopedPageFlag (PersonId.toUInt64 row.personId)
+                                (Just row.conversationId)
+                                (ParticipantFlag row.personId)
+                        )
+                )
+    in
+    combinePageRows withParticipants
+        (Table.access Generation.generations Security.Unrestricted
+            |> R.map
+                (\row ->
+                    ScopedPageFlag (GenerationId.toUInt64 row.id)
+                        (Just row.conversationId)
+                        (GenerationFlag (Generation.toSummary row))
+                )
+        )
+
+
+selectPageFlags :
+    ConversationId
+    -> Rows ScopedPageFlag
+    -> Transaction (Rows ConversationPageFlag)
+selectPageFlags conversationId rows =
+    rows
+        |> R.filter
+            (\row ->
+                (row.conversationId == Nothing)
+                    || (row.conversationId == Just conversationId)
+            )
+        |> R.map .flag
+        |> R.selectAll
+
+
+combinePageRows : Rows ScopedPageFlag -> Rows ScopedPageFlag -> Rows ScopedPageFlag
+combinePageRows left right =
+    R.union (\row -> ( False, row.key ))
+        left
+        (\row -> ( True, row.key ))
+        right
+        |> R.map unionPageFlag
+
+
+unionPageFlag : R.Union ScopedPageFlag ScopedPageFlag -> ScopedPageFlag
+unionPageFlag row =
+    case row of
+        R.Left flag ->
+            flag
+
+        R.Right flag ->
+            flag
+
+        -- Side tags make this unreachable. Keep union: Acadia 0.3.0 xunion
+        -- drops person-only results in the nested query (integration-tested).
+        R.Both flag _ ->
+            flag
 
 
 requestTurn :

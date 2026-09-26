@@ -169,6 +169,15 @@ page, and ignore responses originating from a different conversation. Fetch and
 store the detail conversation by ID instead of loading and filtering the full list.
 The route owns initial loading, failure, and not-found states; initialize the
 detail page only with an existing conversation, so its model requires that value.
+Likewise, load the conversation list and people in Main before initializing
+AllConversations. Its lists are required values; an empty list means a successful
+empty result. Main owns initial loading and failure states. All route loads share one loading
+view and one failure view, without retry controls. Loading state retains the
+resource ID, or the pending `Maybe Route` during development-data initialization.
+
+Conversation speaker validation appears beside the composer actions and names the
+Person menu needed to recover. Associate feedback with that selector, announce
+it as an alert, preserve the draft, and clear it when the selection changes.
 
 Conversation autonomy is opt-in. Show its current interval and paid-call behavior
 beside the controls. Stop cancels the active turn and disables autonomy; the
@@ -229,6 +238,9 @@ experiment into an established preference or expand a small task into a redesign
 
 | Date | Status | Decision and reason |
 | --- | --- | --- |
+| 2026-09-26 | Established | Show missing or ineligible reply-person feedback beside Send, with an accessible alert and selector association; preserve the draft and clear feedback on selection changes. Errors below history were easy to miss. |
+| 2026-09-13 | Established | Main shares loading and failure views and removes route retry controls. Development-data loading retains the pending route and follows the latest navigation after initialization. |
+| 2026-09-13 | Established | Main loads AllConversations flags before initialization, keeping required lists in the page model and initial loading and retry in the route. |
 | 2026-09-12 | Established | Conversation detail fetches and stores only its own conversation by ID; the full list belongs to AllConversations. Load before initializing the detail page so its conversation is required. |
 | 2026-09-07 | Established | Removed sidebar navigation icons following user feedback. Render the navigation list only in the expanded sidebar and keep the open-state decision at the sidebar level. |
 | 2026-09-07 | Established | Give all links a shared light-blue, underlined treatment with brighter hover/focus and a focus outline, following feedback that links were hard to recognize. |

@@ -181,14 +181,29 @@ distinct custom types. Haskell instances for generated types live in
 `People.DomainInstances`; generated files stay generator-owned. ID instances
 support equality, ordering, and decimal display, but deliberately omit `Num`.
 
-A single conversation refresh endpoint remains desirable. Acadia 0.3.0 rejects
-records containing `Rows` as endpoint results and rejects intermediate `Rows`
-transaction bindings. A runtime-tested attempt to combine tagged collections
-with full joins also returned no rows: the generated SQL moved per-collection
-filters into the final WHERE clause and mishandled nested union presence checks.
-The app therefore retains the working separate requests. Do not replace them
-with that combined query without testing empty and missing collections as well
-as populated conversations. Prompt snapshots and note history remain on demand.
+Conversation refreshes use two endpoints in `Chat`: `getConversationDetailsFlags`
+returns people, messages, participants, and generation summaries;
+`getConversationPageFlags` adds the conversation itself. Both reuse
+`conversationDetailsRows`, the tagged-row union helper, and response selection.
+`Main` loads `getConversationPageFlags` before constructing `ConversationPage`,
+passing the conversation and all four collections as its required flags. Page
+initialization is pure and makes no requests. Polling reuses the same endpoint
+and flag parser. Missing conversations and failed initial loads remain route
+states in `Main`. Prompt snapshots and note
+history remain on demand.
+
+Acadia 0.3.0 requires `Rows` at the response root. These queries must keep unions
+left-associated with a single table on the right, use disjoint side tags plus
+real row keys, and filter conversation scope after combining the tagged rows.
+Other shapes tested here either dropped rows, selected the wrong flag kind, or
+failed database startup despite compiling. In particular, replacing these unions
+with `xunion` fails the person-only integration case: it drops the person flag
+when the other collections are empty. Keep `union`; its `Both` case is unreachable
+because the left and right keys start with different Boolean tags. Filtering after the union can scan
+more rows than independent filtered queries; revisit this when the runtime's
+join handling is fixed. The integration suite compares both responses with the
+standalone endpoints for missing conversations, empty collections, overlapping
+IDs, populated histories, and another conversation's data.
 
 The conversations index uses `Conversation.getAllConversationsPageFlags`, a single
 endpoint returning top-level tagged rows. The Elm page splits them into its

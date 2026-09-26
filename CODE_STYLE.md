@@ -86,6 +86,19 @@ and small functions in an Elm-like style. Use explicit imports so names such as
 `Data.Aeson.Value` have an obvious source. `fourmolu.yaml` records the formatting
 settings for handwritten Haskell; do not format generated bindings by hand.
 
+## View composition and helper scope
+
+Keep view markup focused on structure. An `if` or `case` expression in a child
+list, attribute, or function argument is generally a reason to extract a named
+value or helper. Put the conditional in that definition and use its name in the
+markup. Split large views into coherent sections so the page structure is easy
+to scan.
+
+When a function or value is used in only one place, generally define it in the
+`let` expression where it is used, with a type signature. Keep helpers at the top
+level when they are reused or large enough that nesting them would make the
+containing definition difficult to read. This applies beyond view code too.
+
 ## Domain types and module boundaries
 
 Use distinct custom types for every domain ID, following `PersonId`; never use

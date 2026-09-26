@@ -4,7 +4,8 @@ import AllConversations
 import AllPersons
 import Browser
 import Browser.Navigation as Navigation
-import Conversation exposing (Conversation)
+import Chat
+import Conversation
 import ConversationId exposing (ConversationId)
 import ConversationPage
 import Css.Global
@@ -31,13 +32,16 @@ type Page
     | AllPersons AllPersons.Model
     | NewPerson NewPerson.Model
     | Person PersonPage.Model
-    | LoadingConversation Shared.Model ConversationId
-    | ConversationLoadFailed Shared.Model
-    | LoadingPerson Shared.Model PersonId
-    | PersonLoadFailed Shared.Model
+    | Loading Shared.Model LoadTarget
+    | LoadFailed Shared.Model
     | PageNotFound Shared.Model
-    | LoadingDevData Shared.Model
-    | FailedToLoadDevData Shared.Model
+
+
+type LoadTarget
+    = ConversationsTarget
+    | ConversationTarget ConversationId
+    | PersonTarget PersonId
+    | DevelopmentDataTarget (Maybe Route)
 
 
 type Msg
@@ -48,10 +52,11 @@ type Msg
     | PersonMsg PersonPage.Msg
     | AllConversationsMsg AllConversations.Msg
     | ConversationMsg ConversationId ConversationPage.Msg
-    | ConversationResponseReceived ConversationId (Remote Conversation)
+    | AllConversationsResponseReceived (Maybe AllConversations.Flags)
+    | ConversationResponseReceived ConversationId (Remote ConversationPage.Flags)
     | LoadedPersonPage PersonId (Remote PersonPageFlags)
     | SidebarMsg Sidebar.Msg
-    | DevelopmentDataResponseReceived (Maybe Route) (Maybe ())
+    | DevelopmentDataResponseReceived (Maybe ())
 
 
 main : Program () Page Msg
@@ -79,8 +84,8 @@ init url key =
         route =
             Route.fromUrl url
     in
-    ( LoadingDevData (Shared.init key)
-    , DevelopmentData.init (DevelopmentDataResponseReceived route)
+    ( Loading (Shared.init key) (DevelopmentDataTarget route)
+    , DevelopmentData.init DevelopmentDataResponseReceived
     )
 
 
@@ -102,26 +107,14 @@ getShared page =
         Person personModel ->
             PersonPage.shared personModel
 
-        LoadingConversation sharedModel _ ->
+        Loading sharedModel _ ->
             sharedModel
 
-        ConversationLoadFailed sharedModel ->
-            sharedModel
-
-        LoadingPerson sharedModel _ ->
-            sharedModel
-
-        PersonLoadFailed sharedModel ->
+        LoadFailed sharedModel ->
             sharedModel
 
         PageNotFound sharedModel ->
             sharedModel
-
-        LoadingDevData shared ->
-            shared
-
-        FailedToLoadDevData shared ->
-            shared
 
 
 setShared : Shared.Model -> Page -> Page
@@ -142,39 +135,31 @@ setShared sharedModel page =
         Person personModel ->
             Person (PersonPage.setShared sharedModel personModel)
 
-        LoadingConversation _ conversationId ->
-            LoadingConversation sharedModel conversationId
+        Loading _ target ->
+            Loading sharedModel target
 
-        ConversationLoadFailed _ ->
-            ConversationLoadFailed sharedModel
-
-        LoadingPerson _ personId ->
-            LoadingPerson sharedModel personId
-
-        PersonLoadFailed _ ->
-            PersonLoadFailed sharedModel
+        LoadFailed _ ->
+            LoadFailed sharedModel
 
         PageNotFound _ ->
             PageNotFound sharedModel
-
-        LoadingDevData _ ->
-            LoadingDevData sharedModel
-
-        FailedToLoadDevData _ ->
-            FailedToLoadDevData sharedModel
 
 
 handleRouteChange : Maybe Route -> Shared.Model -> ( Page, Eff Msg )
 handleRouteChange maybeRoute sharedModel =
     case maybeRoute of
         Just Route.Conversations ->
-            AllConversations.init sharedModel
-                |> Tuple.mapFirst AllConversations
-                |> Tuple.mapSecond (E.map AllConversationsMsg)
+            ( Loading sharedModel ConversationsTarget
+            , E.attempt
+                (AllConversationsResponseReceived << AllConversations.flagsFromResponse)
+                Conversation.getAllConversationsPageFlags
+            )
 
         Just (Route.Conversation id) ->
-            ( LoadingConversation sharedModel id
-            , E.fetch (ConversationResponseReceived id) (Conversation.getConversation id)
+            ( Loading sharedModel (ConversationTarget id)
+            , E.attempt
+                (ConversationResponseReceived id << ConversationPage.flagsFromResponse)
+                (Chat.getConversationPageFlags id)
             )
 
         Just Route.AllPersons ->
@@ -188,7 +173,7 @@ handleRouteChange maybeRoute sharedModel =
                 |> E.withOut
 
         Just (Route.Person personId) ->
-            ( LoadingPerson sharedModel personId
+            ( Loading sharedModel (PersonTarget personId)
             , E.fetch (LoadedPersonPage personId) (Person.loadPersonPage personId)
             )
 
@@ -209,14 +194,26 @@ update msg page =
                     ( page, E.load url )
 
         ChangesRoute maybeRoute ->
-            handleRouteChange maybeRoute (getShared page)
+            case page of
+                Loading sharedModel (DevelopmentDataTarget _) ->
+                    ( Loading sharedModel (DevelopmentDataTarget maybeRoute)
+                    , E.none
+                    )
 
-        DevelopmentDataResponseReceived maybeRoute result ->
-            case result of
-                Just () ->
+                _ ->
                     handleRouteChange maybeRoute (getShared page)
 
-                Nothing ->
+        DevelopmentDataResponseReceived result ->
+            case page of
+                Loading sharedModel (DevelopmentDataTarget maybeRoute) ->
+                    case result of
+                        Just () ->
+                            handleRouteChange maybeRoute sharedModel
+
+                        Nothing ->
+                            ( LoadFailed sharedModel, E.none )
+
+                _ ->
                     ( page, E.none )
 
         SidebarMsg sidebarMsg ->
@@ -280,21 +277,36 @@ update msg page =
                 _ ->
                     ( page, E.none )
 
+        AllConversationsResponseReceived result ->
+            case page of
+                Loading sharedModel ConversationsTarget ->
+                    case result of
+                        Just flags ->
+                            ( AllConversations (AllConversations.init sharedModel flags)
+                            , E.none
+                            )
+
+                        Nothing ->
+                            ( LoadFailed sharedModel, E.none )
+
+                _ ->
+                    ( page, E.none )
+
         ConversationResponseReceived conversationId result ->
             case page of
-                LoadingConversation sharedModel requestedId ->
+                Loading sharedModel (ConversationTarget requestedId) ->
                     if conversationId /= requestedId then
                         ( page, E.none )
 
                     else
                         case result of
-                            Remote.Found conversation ->
-                                ConversationPage.init sharedModel conversation
-                                    |> Tuple.mapFirst Conversation
-                                    |> Tuple.mapSecond (E.map (ConversationMsg conversationId))
+                            Remote.Found flags ->
+                                ( Conversation (ConversationPage.init sharedModel flags)
+                                , E.none
+                                )
 
                             Remote.Failed ->
-                                ( ConversationLoadFailed sharedModel, E.none )
+                                ( LoadFailed sharedModel, E.none )
 
                             Remote.NotFound ->
                                 ( PageNotFound sharedModel, E.none )
@@ -304,7 +316,7 @@ update msg page =
 
         LoadedPersonPage personId maybePersonPageFlags ->
             case page of
-                LoadingPerson sharedModel requestedId ->
+                Loading sharedModel (PersonTarget requestedId) ->
                     if personId /= requestedId then
                         ( page, E.none )
 
@@ -316,7 +328,7 @@ update msg page =
                                     |> Tuple.mapSecond (E.map PersonMsg)
 
                             Remote.Failed ->
-                                ( PersonLoadFailed sharedModel, E.none )
+                                ( LoadFailed sharedModel, E.none )
 
                             Remote.NotFound ->
                                 ( PageNotFound sharedModel, E.none )
@@ -377,38 +389,22 @@ pageDocument page =
             PersonPage.document personModel
                 |> Document.map PersonMsg
 
-        LoadingConversation _ _ ->
-            { title = "Loading conversation"
+        Loading _ _ ->
+            { title = "Loading"
             , body =
                 [ H.p
                     [ A.css [ S.p4 ], A.attribute "role" "status" ]
-                    [ H.text "Loading conversation…" ]
+                    [ H.text "Loading…" ]
                 ]
             }
 
-        ConversationLoadFailed _ ->
-            { title = "Could not load conversation"
+        LoadFailed _ ->
+            { title = "Could not load page"
             , body =
                 [ H.p
                     [ A.css [ S.p4 ], A.attribute "role" "alert" ]
-                    [ H.text "Could not load this conversation. Reload to retry." ]
+                    [ H.text "Could not load page." ]
                 ]
-            }
-
-        LoadingPerson _ _ ->
-            { title = "Loading person"
-            , body =
-                [ H.p
-                    [ A.css [ S.p4 ], A.attribute "role" "status" ]
-                    [ H.text
-                        "Loading person…"
-                    ]
-                ]
-            }
-
-        PersonLoadFailed _ ->
-            { title = "Could not load person"
-            , body = [ H.p [] [ H.text "Could not load this person. Reload to retry." ] ]
             }
 
         PageNotFound _ ->
@@ -416,28 +412,6 @@ pageDocument page =
             , body =
                 [ H.main_ []
                     [ H.h1 [] [ H.text "Page not found" ]
-                    ]
-                ]
-            }
-
-        LoadingDevData _ ->
-            { title = "Loading development data"
-            , body =
-                [ H.p
-                    [ A.css [ S.p4 ], A.attribute "role" "status" ]
-                    [ H.text
-                        "Loading development data…"
-                    ]
-                ]
-            }
-
-        FailedToLoadDevData _ ->
-            { title = "Could not load development data"
-            , body =
-                [ H.p
-                    [ A.css [ S.p4 ], A.attribute "role" "alert" ]
-                    [ H.text
-                        "Could not load development data. Reload to retry."
                     ]
                 ]
             }

@@ -13,6 +13,8 @@ import qualified Chat
 import Conversation (Conversation)
 import qualified Conversation
 import qualified Generation
+import qualified GenerationId
+import qualified MessageId
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (concurrently_)
 import Control.Exception (SomeException, try)
@@ -83,6 +85,48 @@ checkConversationPageFlags database = do
         "Page flags preserve every person exactly once"
 
 
+checkConversationRefresh :: Database.Database -> ConversationId.ConversationId -> IO ()
+checkConversationRefresh database conversationId = do
+    let
+        run :: Database.Transaction a -> IO a
+        run = Database.runTransaction database
+    full <- run (Chat.getConversationPageFlags conversationId)
+    details <- run (Chat.getConversationDetailsFlags conversationId)
+    conversation <- run (Conversation.getConversation conversationId)
+    people <- run Person.getAllPersons
+    messages <- run (Chat.getMessages conversationId)
+    participants <- run (Conversation.getParticipants conversationId)
+    generations <- run (Generation.getGenerationSummaries conversationId)
+    assert
+        ([row.id | Chat.ConversationFlag row <- full] == maybe [] (\row -> [row.id]) conversation)
+        "Full refresh includes exactly the requested conversation, or none when missing"
+    assert
+        (null [row.id | Chat.ConversationFlag row <- details])
+        "Details refresh omits the conversation"
+    assert
+        (length details == length people + length messages + length participants + length generations)
+        "Details refresh has exactly one flag per source row"
+    assert
+        (length full == length details + maybe 0 (const 1) conversation)
+        "Full refresh adds only the conversation flag"
+    forM_ [full, details] $ \flags -> do
+        assert
+            (sort [(row.id, row.name, row.identity, row.aspirations) | Chat.PersonFlag row <- flags]
+                == sort (map (\row -> (row.id, row.name, row.identity, row.aspirations)) people))
+            "Refresh preserves every person exactly once"
+        assert
+            (sort [(row.id, row.conversationId, row.author, row.content) | Chat.MessageFlag row <- flags]
+                == sort (map (\row -> (row.id, row.conversationId, row.author, row.content)) messages))
+            "Refresh preserves messages and scopes them to the conversation"
+        assert
+            (sort [personId | Chat.ParticipantFlag personId <- flags] == sort participants)
+            "Refresh preserves participants exactly once"
+        assert
+            (sort [(row.id, row.speaker, row.error) | Chat.GenerationFlag row <- flags]
+                == sort (map (\row -> (row.id, row.speaker, row.error)) generations))
+            "Refresh preserves generation summaries exactly once"
+
+
 main :: IO ()
 main = do
     [url] <- getArgs
@@ -91,8 +135,11 @@ main = do
         run :: Database.Transaction a -> IO a
         run = Database.runTransaction database
     checkConversationPageFlags database
+    checkConversationRefresh database (ConversationId.ConversationId 999999)
     personId <- run (Person.createNewPerson "MVP integration person")
     checkConversationPageFlags database
+    -- Only the leftmost collection has rows; all joined collections are empty.
+    checkConversationRefresh database (ConversationId.ConversationId 999999)
     Just initial <- run (Person.loadPersonPage personId)
     saved <-
         run
@@ -142,11 +189,25 @@ main = do
     missingConversation <-
         run (Conversation.getConversation (ConversationId.ConversationId 999999))
     assert (isNothing missingConversation) "Missing conversation detail returns Nothing"
+    checkConversationRefresh database conversationId
+    checkConversationRefresh database otherConversationId
+    checkConversationRefresh database (ConversationId.ConversationId 999999)
     empty <- run (Chat.getMessages conversationId)
     assert (null empty) "Empty row decoding"
     members <- run (Conversation.getParticipants conversationId)
     print (length members)
     generationId <- run (Chat.requestTurn conversationId 0 personId "Hello")
+    firstMessages <- run (Chat.getMessages conversationId)
+    let
+        generationNumber :: Word64
+        GenerationId.GenerationId generationNumber = generationId
+        messageNumbers :: [Word64]
+        messageNumbers =
+            map (\row -> case row.id of MessageId.MessageId value -> value) firstMessages
+    assert
+        (generationNumber == conversationNumber && messageNumbers == [conversationNumber])
+        "Refresh coverage overlaps person, participant, message, generation, and conversation IDs"
+    checkConversationRefresh database conversationId
     putStrLn "Checking duplicate request"
     mustFail (run (Chat.requestTurn conversationId 0 personId "Duplicate"))
     run (Generation.claimGeneration generationId 180)
@@ -159,6 +220,8 @@ main = do
         run
             (Generation.getGenerationPrompt (ConversationId.ConversationId 999999) generationId)
     assert (missingPrompt == Nothing) "Prompt lookup respects conversation identity"
+    checkConversationRefresh database conversationId
+    checkConversationRefresh database otherConversationId
     summaries <- run (Generation.getGenerationSummaries conversationId)
     assert (length summaries == 1) "Lightweight generation summary round trip"
     runningPhase <- run (Generation.getGenerationPhase generationId)
@@ -174,6 +237,9 @@ main = do
             Nothing
             "Shared rhythm plan"
         )
+    checkConversationRefresh database conversationId
+    checkConversationRefresh database otherConversationId
+    checkConversationRefresh database (ConversationId.ConversationId 999999)
     messages <- run (Chat.getMessages conversationId)
     assert (length messages == 2) "Exactly one user and one AI message"
     goals <- run (Goal.getGoals personId)

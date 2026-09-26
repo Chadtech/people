@@ -1,4 +1,4 @@
-module AllConversations exposing (Model, Msg, init, setShared, shared, update, view)
+module AllConversations exposing (Flags, Model, Msg, flagsFromResponse, init, setShared, shared, update, view)
 
 import Conversation exposing (Conversation)
 import ConversationId exposing (ConversationId)
@@ -19,9 +19,15 @@ import Style as S
 import View.Button as Button
 
 
+
+----------------------------------------------------------------
+-- TYPES
+----------------------------------------------------------------
+
+
 type alias Model =
     { shared : Shared.Model
-    , conversations : Maybe (List Conversation)
+    , conversations : List Conversation
     , people : List Person
     , title : String
     , speaker : String
@@ -31,31 +37,60 @@ type alias Model =
 
 
 type Msg
-    = PageFlagsResponseReceived (Maybe (List Conversation.AllConversationsPageFlag))
-    | TitleInputChanged String
+    = TitleInputChanged String
     | SpeakerSelectionChanged String
     | CreateButtonClicked
     | ConversationCreatedResponseReceived (Maybe ConversationId)
-    | RetryButtonClicked
 
 
-init : Shared.Model -> ( Model, Eff Msg )
-init sharedModel =
-    ( { shared = sharedModel
-      , conversations = Nothing
-      , people = []
-      , title = ""
-      , speaker = ""
-      , pending = False
-      , error = Nothing
-      }
-    , load
-    )
+
+----------------------------------------------------------------
+-- INIT
+----------------------------------------------------------------
 
 
-load : Eff Msg
-load =
-    E.attempt PageFlagsResponseReceived Conversation.getAllConversationsPageFlags
+type alias Flags =
+    { conversations : List Conversation
+    , people : List Person
+    }
+
+
+init : Shared.Model -> Flags -> Model
+init sharedModel flags =
+    { shared = sharedModel
+    , conversations = flags.conversations
+    , people = flags.people
+    , title = ""
+    , speaker = ""
+    , pending = False
+    , error = Nothing
+    }
+
+
+flagsFromResponse :
+    Maybe (List Conversation.AllConversationsPageFlag)
+    -> Maybe Flags
+flagsFromResponse =
+    let
+        addPageFlag : Conversation.AllConversationsPageFlag -> Flags -> Flags
+        addPageFlag flag flags =
+            case flag of
+                Conversation.ConversationFlag conversation ->
+                    { flags | conversations = conversation :: flags.conversations }
+
+                Conversation.PersonFlag person ->
+                    { flags | people = person :: flags.people }
+    in
+    Maybe.map
+        (List.foldr addPageFlag
+            { conversations = [], people = [] }
+        )
+
+
+
+----------------------------------------------------------------
+-- API
+----------------------------------------------------------------
 
 
 shared : Model -> Shared.Model
@@ -68,40 +103,20 @@ setShared value model =
     { model | shared = value }
 
 
+
+----------------------------------------------------------------
+-- UPDATE
+----------------------------------------------------------------
+
+
 update : Msg -> Model -> ( Model, Eff Msg )
 update msg model =
     case msg of
-        PageFlagsResponseReceived result ->
-            case result of
-                Nothing ->
-                    ( { model | error = Just "Could not load conversations and people. Check the connection and retry." }
-                    , E.none
-                    )
-
-                Just rows ->
-                    let
-                        flags : PageFlags
-                        flags =
-                            List.foldr addPageFlag
-                                { conversations = [], people = [] }
-                                rows
-                    in
-                    ( { model
-                        | conversations = Just flags.conversations
-                        , people = flags.people
-                        , error = Nothing
-                      }
-                    , E.none
-                    )
-
         TitleInputChanged value ->
             ( { model | title = value }, E.none )
 
         SpeakerSelectionChanged value ->
             ( { model | speaker = value }, E.none )
-
-        RetryButtonClicked ->
-            ( { model | error = Nothing }, load )
 
         CreateButtonClicked ->
             case PersonIdUtil.fromString model.speaker of
@@ -142,20 +157,10 @@ update msg model =
                     )
 
 
-type alias PageFlags =
-    { conversations : List Conversation
-    , people : List Person
-    }
 
-
-addPageFlag : Conversation.AllConversationsPageFlag -> PageFlags -> PageFlags
-addPageFlag flag flags =
-    case flag of
-        Conversation.ConversationFlag conversation ->
-            { flags | conversations = conversation :: flags.conversations }
-
-        Conversation.PersonFlag person ->
-            { flags | people = person :: flags.people }
+----------------------------------------------------------------
+-- VIEW
+----------------------------------------------------------------
 
 
 view : Model -> Document Msg
@@ -212,29 +217,12 @@ conversationList model =
                 ]
             ]
             (case model.conversations of
-                Nothing ->
-                    [ H.li []
-                        [ H.text
-                            (if model.error == Nothing then
-                                "Loading conversations…"
-
-                             else
-                                "Conversations could not be loaded."
-                            )
-                        ]
-                    ]
-
-                Just [] ->
+                [] ->
                     [ H.li [] [ H.text "No conversations yet. Create one below." ] ]
 
-                Just conversations ->
+                conversations ->
                     List.map conversationLink conversations
             )
-        , if model.error /= Nothing then
-            Button.secondary "Retry" RetryButtonClicked |> Button.toHtml
-
-          else
-            H.text ""
         , H.fieldset [ A.attribute "aria-labelledby" "new-conversation-heading", A.disabled model.pending, A.css [ Css.border (Css.px 0), S.col, S.g2 ] ]
             [ H.div [ A.css [ S.col, S.g3 ] ]
                 [ H.h2 [ A.id "new-conversation-heading", A.css [ S.textGray3 ] ] [ H.text "New conversation" ]

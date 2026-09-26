@@ -2,6 +2,7 @@ database module Generation exposing
     ( Generation
     , GenerationSummary
     , Phase(..)
+    , toSummary
     , generationIds
     , generations
     , endpoint claimGeneration
@@ -78,15 +79,17 @@ getGenerationSummaries :
 getGenerationSummaries _ conversationId =
     Table.access generations Security.Unrestricted
         |> R.filter (\row -> row.conversationId == conversationId)
-        |> R.map
-            (\row ->
-                { id = row.id
-                , speaker = row.speaker
-                , phase = row.phase
-                , error = row.error
-                }
-            )
+        |> R.map toSummary
         |> R.selectAll
+
+
+toSummary : Generation -> GenerationSummary
+toSummary row =
+    { id = row.id
+    , speaker = row.speaker
+    , phase = row.phase
+    , error = row.error
+    }
 
 
 getGenerationPrompt :
