@@ -1,6 +1,9 @@
-.PHONY: build serve dev worker
+.PHONY: build serve dev worker dev-data
 
-build:
+dev-data:
+	@test -f src/Fixtures.db || cp src/Fixtures.db.example src/Fixtures.db
+
+build: dev-data
 	acadia make --gen-elm=generated --gen-haskell=server/generated
 	elm make src/Main.elm
 

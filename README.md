@@ -143,8 +143,13 @@ For a longer experience run, open Conversations, choose **Long-running
 conversation**, and enable autonomy when the OpenAI worker is ready. Join in or
 stop it whenever you like. Keep the Acadia process alive for that session.
 
-Edit the AI starting conditions in `src/Fixtures.db`; the original six people
-are also seeded by that one endpoint. Page reads still run alongside setup;
+Edit your private starting conditions in `src/Fixtures.db`. This file is
+Git-ignored; `make build`, `make serve`, `make worker`, and `make dev` create it
+from the tracked `src/Fixtures.db.example` only when it is missing, preserving
+your local edits. Run `make dev-data` first if you invoke `acadia` directly.
+Keep the example free of private data. `make dev` watches the ignored local
+fixture file too, so saving it rebuilds and restarts the in-memory server.
+The original six people are also seeded by that one endpoint. Page reads still run alongside setup;
 Conversations refreshes automatically, and All persons may need revisiting after
 an initial fill.
 

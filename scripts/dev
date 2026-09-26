@@ -32,10 +32,13 @@ cleanup() {
 
 trap cleanup EXIT HUP INT TERM
 
+make dev-data
+
 echo "Watching Acadia sources; .db saves rebuild everything and restart the server."
 watchexec \
     --restart \
     --watch src \
+    --no-vcs-ignore \
     --exts db \
     --shell none \
     -- \

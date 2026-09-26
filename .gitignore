@@ -32,3 +32,4 @@ index.html
 /ARCHITECTURE.md
 /.env.local
 /.env
+/src/Fixtures.db
