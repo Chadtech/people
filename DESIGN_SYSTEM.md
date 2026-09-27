@@ -193,12 +193,15 @@ empty result. Main owns initial loading and failure states. All route loads shar
 view and one failure view, without retry controls. Loading state retains the
 resource ID, or the pending `Maybe Route` during development-data initialization.
 
-Conversation detail uses a left controls card and a right transcript card at
-wide widths. The transcript scrolls independently, with the human composer and
-Send below it. Keep participant, reply, autonomy, note, and history controls in
-the left column, which can scroll independently when needed. At narrow widths,
-stack the cards, bound the controls height, and retain a bounded, keyboard-focusable
-transcript scroll area.
+Conversation detail uses one full-width panel with Conversation, Notes, and
+Generation history view selectors. Show only the selected view; default to
+Conversation and preserve drafts and loaded inspection data when switching.
+The transcript has a bounded, keyboard-focusable scroll area with the Person
+selector and composer below. Participant and automation controls live in a
+compact disclosure. View selectors wrap at narrow widths and expose their
+selected state to assistive technology. Selected tabs retain the gray background;
+use inset edges and brighter text to indicate selection. This layout is an experiment to review
+through use after the earlier two-column layout proved cramped.
 
 Conversation's Person menu defaults to the current local human and displays
 actual profile names for every participant. The human selection shows the message
@@ -276,8 +279,10 @@ experiment into an established preference or expand a small task into a redesign
 
 | Date | Status | Decision and reason |
 | --- | --- | --- |
+| 2026-09-27 | Established | Indented selected tabs retain a gray background; selection uses inset edges and brighter text, following feedback against green tab backgrounds. |
+| 2026-09-27 | Experiment | Use one column with Conversation, Notes, and Generation history views; tuck participant and automation controls into a disclosure to reduce simultaneous content. Review through use. |
 | 2026-09-27 | Established | Conversation transcript height and minimum height use shared `Style` helpers instead of inline `Css` declarations, preserving their existing values. |
-| 2026-09-27 | Established | Separate conversation controls into a left card and the scrollable transcript with composer into a right card, preventing long histories from pushing Send out of reach. Stack cards on narrow screens. |
+| 2026-09-27 | Superseded | Separate conversation controls into a left card and the scrollable transcript with composer into a right card, preventing long histories from pushing Send out of reach. Stack cards on narrow screens. |
 | 2026-09-27 | Established | Initialize AI person pages only after goals and memories load successfully; keep initial loading and failure in Main and preserve loaded lists on refresh failure. |
 | 2026-09-27 | Established | Offer single-turn and six-turn automatic runs together, allowing incremental conversation progress. |
 | 2026-09-27 | Established | AI identity and goals/memory feedback use custom status types instead of strings, with text derived in the view. |

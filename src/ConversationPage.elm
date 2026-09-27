@@ -26,7 +26,7 @@ import Generation exposing (GenerationSummary)
 import GenerationError.Util as GenerationErrorUtil
 import GenerationId exposing (GenerationId)
 import GenerationId.Util as GenerationIdUtil
-import Html.Styled as H exposing (Html)
+import Html.Styled as H exposing (Attribute, Html)
 import Html.Styled.Attributes as A
 import Html.Styled.Events as Ev
 import IntervalSeconds
@@ -71,6 +71,7 @@ type alias Model =
     , loadingPrompts : Set String
     , loadingNotes : Bool
     , generations : List Generation.GenerationSummary
+    , selectedView : ConversationView
     , draft : String
     , speaker : String
     , speakerError : Maybe SpeakerError
@@ -97,6 +98,12 @@ type Error
     | TurnStartFailed
 
 
+type ConversationView
+    = MessagesView
+    | NotesView
+    | HistoryView
+
+
 type SpeakerError
     = AiPersonSpeakerRequired
     | SpeakerNotParticipant
@@ -105,7 +112,8 @@ type SpeakerError
 
 
 type Msg
-    = TickReceived
+    = ViewButtonClicked ConversationView
+    | TickReceived
     | PageFlagsResponseReceived (Remote Flags)
     | PromptInspectionClicked GenerationId
     | PromptResponseReceived GenerationId (Remote PromptSnapshot.PromptSnapshot)
@@ -163,6 +171,7 @@ init sharedModel flags =
     , loadingNotes = False
     , prompts = Dict.empty
     , loadingPrompts = Set.empty
+    , selectedView = MessagesView
     , draft = ""
     , speaker = PersonIdUtil.toString flags.currentPerson
     , speakerError = Nothing
@@ -433,6 +442,9 @@ requestTurn model =
 update : Msg -> Model -> ( Model, Eff Msg )
 update msg model =
     case msg of
+        ViewButtonClicked selectedView ->
+            { model | selectedView = selectedView } |> E.withOut
+
         TickReceived ->
             if model.pending then
                 ( model, E.none )
@@ -699,7 +711,7 @@ conversationView model conversation =
         sharedNote : Html Msg
         sharedNote =
             if String.isEmpty (NoteUtil.toString conversation.note) then
-                H.text ""
+                H.p [] [ H.text "No shared note yet." ]
 
             else
                 H.section [ A.css [ S.col, S.g2 ] ]
@@ -733,14 +745,21 @@ conversationView model conversation =
 
         generationHistory : Html Msg
         generationHistory =
+            let
+                generations : List (Html Msg)
+                generations =
+                    if List.isEmpty model.generations then
+                        [ H.p [] [ H.text "No generations yet." ] ]
+
+                    else
+                        model.generations
+                            |> List.sortBy (\g -> String.padLeft 20 '0' (GenerationIdUtil.toString g.id))
+                            |> List.reverse
+                            |> List.map (generationView model)
+            in
             H.section [ A.css [ S.col, S.g2 ] ]
                 [ H.h2 [ A.css [ S.textGray3 ] ] [ H.text "Generation history" ]
-                , H.div []
-                    (model.generations
-                        |> List.sortBy (\g -> String.padLeft 20 '0' (GenerationIdUtil.toString g.id))
-                        |> List.reverse
-                        |> List.map (generationView model)
-                    )
+                , H.div [] generations
                 ]
 
         speakerInvalid : String
@@ -783,48 +802,117 @@ conversationView model conversation =
 
         controls : Html Msg
         controls =
-            H.section
-                [ A.css
-                    [ S.col
-                    , S.g3
-                    , S.p3
-                    , S.bgGray1
-                    , S.outdent
-                    , S.minW0
-                    , S.wrapAnywhere
-                    , S.overflowAuto
-                    , Css.maxHeight (Css.vh 60)
-                    , S.lg [ Css.width (Css.rem 20), S.flex00auto, Css.maxHeight Css.none ]
+            let
+                controlsNeeded : Bool
+                controlsNeeded =
+                    model.speaker
+                        /= PersonIdUtil.toString model.currentPerson
+                        || model.speakerError
+                        /= Nothing
+                        || conversation.activeGeneration
+                        /= Nothing
+                        || conversation.autonomous
+
+                openAttributes : List (Attribute Msg)
+                openAttributes =
+                    if controlsNeeded then
+                        [ A.attribute "open" "" ]
+
+                    else
+                        []
+            in
+            H.details
+                (A.css [ S.flex00auto ] :: openAttributes)
+                [ H.summary [ A.css [ S.pointerCursor ] ]
+                    [ H.text "Participants and automation" ]
+                , H.div [ A.css [ S.col, S.g2, S.py2 ] ]
+                    [ H.p []
+                        [ H.text
+                            ("Participants: "
+                                ++ String.join ", " (List.map .name model.participants)
+                            )
+                        ]
+                    , H.p [ A.attribute "role" "status" ] [ H.text autonomyStatus ]
+                    , H.fieldset
+                        [ A.disabled model.pending
+                        , A.css [ S.border0, S.minW0 ]
+                        ]
+                        [ Button.secondary "Add participant" AddParticipantButtonClicked
+                            |> Button.toHtml
+                        ]
+                    , H.a
+                        [ Route.href (Route.Person model.currentPerson), A.css [ S.link ] ]
+                        [ H.text "Edit human profile" ]
+                    , replyControlsView model conversation
                     ]
-                , A.attribute "aria-label" "Conversation controls"
                 ]
-                [ H.a
-                    [ Route.href Route.Conversations, A.css [ S.link ] ]
-                    [ H.text "All conversations" ]
-                , H.h1 [ A.css [ S.textGray3 ] ] [ H.text "Conversation" ]
-                , H.p []
-                    [ H.text
-                        ("Participants: "
-                            ++ String.join ", " (List.map .name model.participants)
-                        )
-                    ]
-                , H.p [ A.attribute "role" "status" ] [ H.text autonomyStatus ]
-                , H.fieldset
-                    [ A.disabled model.pending
-                    , A.css [ S.border0, S.col, S.g2, S.minW0 ]
-                    ]
-                    [ personSelector
-                    , Button.secondary "Add participant" AddParticipantButtonClicked
-                        |> Button.toHtml
-                    ]
-                , H.a
-                    [ Route.href (Route.Person model.currentPerson), A.css [ S.link ] ]
-                    [ H.text "Edit human profile" ]
-                , replyControlsView model conversation
-                , sharedNote
-                , noteHistoryView model
-                , generationHistory
+
+        viewSelector : Html Msg
+        viewSelector =
+            let
+                viewButton : ConversationView -> String -> Html Msg
+                viewButton selectedView label =
+                    let
+                        selected : Bool
+                        selected =
+                            model.selectedView == selectedView
+
+                        pressed : String
+                        pressed =
+                            if selected then
+                                "true"
+
+                            else
+                                "false"
+
+                        appearance : Css.Style
+                        appearance =
+                            if selected then
+                                S.batch [ S.indent, S.bgGray1, S.textGray5 ]
+
+                            else
+                                S.batch [ S.outdent, S.bgGray1, S.textGray4 ]
+                    in
+                    H.button
+                        [ A.type_ "button"
+                        , A.attribute "aria-pressed" pressed
+                        , A.attribute "aria-controls" "conversation-content"
+                        , Ev.onClick (ViewButtonClicked selectedView)
+                        , A.css [ S.p2, S.pointerCursor, appearance ]
+                        ]
+                        [ H.text label ]
+            in
+            H.div
+                [ A.attribute "role" "group"
+                , A.attribute "aria-label" "Conversation views"
+                , A.css [ S.row, S.flexWrap, S.g2 ]
                 ]
+                [ viewButton MessagesView "Conversation"
+                , viewButton NotesView "Notes"
+                , viewButton HistoryView "Generation history"
+                ]
+
+        selectedContent : Html Msg
+        selectedContent =
+            case model.selectedView of
+                MessagesView ->
+                    H.div
+                        [ A.css [ S.col, S.g3 ] ]
+                        [ H.div
+                            [ A.css [ S.col, S.g3, S.h75Viewport, S.minH96 ] ]
+                            [ messages
+                            , personSelector
+                            , composerView model
+                            ]
+                        , controls
+                        ]
+
+                NotesView ->
+                    H.div [ A.css [ S.col, S.g3 ] ]
+                        [ sharedNote, noteHistoryView model ]
+
+                HistoryView ->
+                    generationHistory
 
         errorStatus : Html Msg
         errorStatus =
@@ -836,34 +924,16 @@ conversationView model conversation =
                     H.p [ A.attribute "role" "status", A.css [ S.wrapAnywhere ] ]
                         [ H.text (errorToString error) ]
     in
-    H.div
-        [ A.css
-            [ S.col
-            , S.g3
-            , S.minW0
-            , S.lg [ S.row, Css.property "height" "calc(100dvh - 2rem)" ]
-            ]
-        ]
-        [ controls
-        , H.article
-            [ A.css
-                [ S.col
-                , S.g3
-                , S.p3
-                , S.bgGray1
-                , S.outdent
-                , S.minW0
-                , S.h75Viewport
-                , S.minH96
-                , S.lg [ S.flex1, S.hFull, S.minH0 ]
-                ]
-            ]
-            [ H.h2 [ A.css [ S.textGray3, S.wrapAnywhere ] ]
-                [ H.text (ConversationTitleUtil.toString conversation.title) ]
-            , messages
-            , composerView model
-            , errorStatus
-            ]
+    H.article
+        [ A.css [ S.col, S.g3, S.p3, S.bgGray1, S.outdent, S.minW0, S.wrapAnywhere ] ]
+        [ H.a
+            [ Route.href Route.Conversations, A.css [ S.link ] ]
+            [ H.text "All conversations" ]
+        , H.h1 [ A.css [ S.textGray3 ] ]
+            [ H.text (ConversationTitleUtil.toString conversation.title) ]
+        , viewSelector
+        , H.div [ A.id "conversation-content" ] [ selectedContent ]
+        , errorStatus
         ]
 
 
@@ -949,7 +1019,8 @@ replyControlsView model conversation =
             if conversation.activeGeneration == Nothing then
                 H.div
                     [ A.css
-                        [ S.col
+                        [ S.row
+                        , S.flexWrap
                         , S.g2
                         ]
                     ]
