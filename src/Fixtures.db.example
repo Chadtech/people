@@ -117,7 +117,7 @@ fillDevelopmentData cookies =
                     Goal.createGoal cookies
                         sam
                         (GoalDescription
-                            "Develop a shared note of useful ideas and unresolved questions with Ada."
+                            "Explore useful ideas and unresolved questions with Ada."
                         )
 
                 () :=
@@ -143,5 +143,8 @@ fillDevelopmentData cookies =
                             "Long-running conversation"
                         )
                         ada
+
+                () :=
+                    Conversation.addParticipant cookies conversation chadtech
             in
             Conversation.addParticipant cookies conversation sam

@@ -193,18 +193,33 @@ empty result. Main owns initial loading and failure states. All route loads shar
 view and one failure view, without retry controls. Loading state retains the
 resource ID, or the pending `Maybe Route` during development-data initialization.
 
-Conversation detail uses one full-width panel with Conversation, Notes, and
+Conversation detail uses one full-width panel with Conversation and
 Generation history view selectors. Show only the selected view; default to
 Conversation and preserve drafts and loaded inspection data when switching.
 The transcript has a bounded, keyboard-focusable scroll area with the Person
-selector and composer below. Participant and automation controls live in a
-compact disclosure. View selectors wrap at narrow widths and expose their
+selector, composer, and routine reply controls below. Run 1 turn, Run 6 turns,
+the selected-person reply action, and Stop remain outside disclosures so continuing
+or stopping a conversation is immediately available. Participant and automation settings live in a
+compact disclosure with a dedicated Participant to add menu containing only
+nonmembers. The participant roster remains visible above both views.
+Creation uses a searchable list of people. Selecting a result adds that person
+to a separate list of people joining the conversation, with a remove action.
+Selected people are excluded from search results; search is case-insensitive.
+Selectable people lists use a dark surface and full-width, contiguous rows,
+with alternating `bgNightwood0` and `bgNightwood1` backgrounds and
+hover/focus highlighting. Selected participant names have compact, borderless ×
+remove controls beside them, with a person-specific accessible label and tooltip;
+avoid repeating the name in a large removal button. Use
+`S.selectableListRow` for the row treatment; options are rows rather than beveled
+buttons, and support keyboard activation.
+The local human is optional and is never added implicitly. View selectors wrap at narrow widths and expose their
 selected state to assistive technology. Selected tabs retain the gray background;
 use inset edges and brighter text to indicate selection. This layout is an experiment to review
 through use after the earlier two-column layout proved cramped.
 
-Conversation's Person menu defaults to the current local human and displays
-actual profile names for every participant. The human selection shows the message
+Conversation's Person menu contains eligible speakers from the conversation only.
+It defaults to the local human when included, otherwise to an AI participant,
+and displays actual profile names. The human selection shows the message
 composer and Send; an AI selection shows the reply request action. Switching
 people preserves an unsent human draft. Sending a human message does not itself
 request a reply and remains available during an AI turn. Automatic runs select
@@ -224,9 +239,7 @@ Conversation autonomy is opt-in. Show its current interval and paid-call behavio
 beside the controls. Stop cancels the active turn and disables autonomy; the
 resulting state remains visible after page reload.
 
-Note history loads on request and uses disclosure controls for earlier revisions.
-Label each revision with its AI author and originating turn, keeping old content
-on the existing panel surface. Prompt snapshots also load on request inside a
+Prompt snapshots load on request inside a
 turn disclosure, so routine status refreshes do not reload large inspection data.
 Render prompt inputs as attributed text with their selection reasons. Keep
 excluded inputs and the exact serialized request in separate disclosures, so
@@ -279,6 +292,13 @@ experiment into an established preference or expand a small task into a redesign
 
 | Date | Status | Decision and reason |
 | --- | --- | --- |
+| 2026-09-27 | Established | Use `bgNightwood1` for alternating participant rows instead of a custom color; reuse the palette tokens. |
+| 2026-09-27 | Established | Remove shared notes and their history from conversations; collaborative notes are not part of the core conversation experience. |
+| 2026-09-27 | Established | Keep routine reply/run controls and Stop beside the composer, outside Participants and automation; that disclosure is for participant and autonomy settings. |
+| 2026-09-27 | Established | Soften participant row striping and use compact borderless × removal controls, following feedback that contrast and repeated-name buttons were too heavy. |
+| 2026-09-27 | Established | Searchable participant options use dark, subtly striped rows with hover and keyboard-focus highlights instead of button styling. |
+| 2026-09-27 | Established | Conversation creation uses searchable people results and a separate removable participant list, replacing checkboxes following user feedback. |
+| 2026-09-27 | Established | Keep the participant roster visible across conversation views, separate adding from speaking, and select all initial participants explicitly with optional human inclusion. |
 | 2026-09-27 | Established | Indented selected tabs retain a gray background; selection uses inset edges and brighter text, following feedback against green tab backgrounds. |
 | 2026-09-27 | Experiment | Use one column with Conversation, Notes, and Generation history views; tuck participant and automation controls into a disclosure to reduce simultaneous content. Review through use. |
 | 2026-09-27 | Established | Conversation transcript height and minimum height use shared `Style` helpers instead of inline `Css` declarations, preserving their existing values. |
@@ -305,7 +325,7 @@ experiment into an established preference or expand a small task into a redesign
 | 2026-09-07 | Established | Changed all borders from 2px to 1px following user feedback. Shared bevels and border helpers use one width token, including pressed controls. |
 | 2026-09-07 | Established | Use `S.flexWrap` and Tailwind-inspired names for shared layout utilities. Keep page subsections in their owning Elm page. |
 | 2026-09-05 | Established baseline | Recorded the existing People theme: nightwood, Fira Code with local fallbacks, beveled controls, and link-based navigation. Grounds future work in the current frontend. |
-| 2026-09-06 | Experiment | Shared-note revisions load on request and expand individually, with author and turn attribution. Keeps earlier AI contributions inspectable without expanding every note. |
+| 2026-09-06 | Superseded | Shared-note revisions load on request and expand individually, with author and turn attribution. Keeps earlier AI contributions inspectable without expanding every note. |
 | 2026-09-06 | Experiment | Conversation autonomy shows explicit on/off state, interval, and call cost behavior. Browser-verified enable, reload, and Stop. |
 | 2026-09-06 | Experiment | Person goals and memories use attributed records and a borderless disabled fieldset for pending edits. Browser-verified creation, completion, and keyboard retirement; narrow use currently requires collapsing the sidebar. |
 | 2026-09-05 | Established | All text uses normal weight; removed bold labels and headings and reset browser default bold styling following user feedback. |

@@ -7,12 +7,10 @@ import qualified GoalDescription
 import qualified MemoryContent
 import qualified MemoryKeywords
 import qualified MessageContent
-import qualified Note
 import People.DomainInstances ()
 
 import AiPersonProfile (AiPersonProfile)
 import qualified Chat
-import Conversation (Conversation)
 import Data.Aeson (ToJSON (toJSON), object, (.=))
 import qualified Data.ByteString as BS
 import Data.List (sortOn)
@@ -50,7 +48,7 @@ errorToString promptError =
         MessageAuthorMissing ->
             "A message author could not be resolved. Repair the conversation before generating a reply."
         ContextBudgetExceeded ->
-            "Identity, active goals, shared note, and the latest message \
+            "Identity, active goals and the latest message \
             \exceed the context budget. Shorten these inputs before retrying."
 
 
@@ -108,29 +106,27 @@ type Block = (Text, Text, Text)
 buildPrompt
     :: Person
     -> [Person]
-    -> Conversation
     -> [Chat.Message]
     -> [Goal]
     -> [Memory]
     -> Either PromptError Prompt
-buildPrompt person roster conversation history goals memories =
+buildPrompt person roster history goals memories =
     case person.kind of
         Person.HumanPerson ->
             Left HumanCannotGenerate
         Person.AiPerson profile ->
-            buildAiPersonPrompt person profile roster conversation history goals memories
+            buildAiPersonPrompt person profile roster history goals memories
 
 
 buildAiPersonPrompt
     :: Person
     -> AiPersonProfile
     -> [Person]
-    -> Conversation
     -> [Chat.Message]
     -> [Goal]
     -> [Memory]
     -> Either PromptError Prompt
-buildAiPersonPrompt person profile roster conversation history goals memories = do
+buildAiPersonPrompt person profile roster history goals memories = do
     mapM_ requireName (person : roster)
     attributedHistory <- traverse attributeMessage (sortOn (.id) history)
     if T.null (T.strip profile.identity)
@@ -199,9 +195,8 @@ buildAiPersonPrompt person profile roster conversation history goals memories = 
                   \specific in-app goal or empty; reflection is a short useful \
                   \recollection or empty. Do not repeat existing goals or memories."
                 , "complete_goal is the decimal ID of one of YOUR active goals \
-                  \actually accomplished by this turn, or empty. shared_note is the \
-                  \complete revised shared note, or empty to leave it unchanged."
-                , "Allowed actions are conversation, updating this shared note, \
+                  \actually accomplished by this turn, or empty."
+                , "Allowed actions are conversation, \
                   \proposing your own goal, completing your own goal, and recording \
                   \a reflection. Do not claim external actions."
                 ]
@@ -242,11 +237,6 @@ buildAiPersonPrompt person profile roster conversation history goals memories = 
             | g <- sortOn (.id) goals
             , isActive g.status
             ]
-        note :: [Block]
-        note =
-            [ ("shared-note", "current database state", noteText conversation.note)
-            | not (T.null (noteText conversation.note))
-            ]
         candidates :: [Memory]
         candidates = sortOn (Down . (.id)) memories
         eligible :: [Memory]
@@ -272,7 +262,7 @@ buildAiPersonPrompt person profile roster conversation history goals memories = 
         -- Relevant memory gets a bounded share before older history, so a long
         -- conversation cannot permanently crowd out this person's recollections.
         core :: [Block]
-        core = ident ++ participants ++ activeGoals ++ note
+        core = ident ++ participants ++ activeGoals
         requireName :: Person -> Either PromptError ()
         requireName participant
             | T.null (T.strip participant.name) = Left NameRequired
@@ -353,10 +343,6 @@ messageText (MessageContent.MessageContent value) = value
 
 goalText :: GoalDescription.GoalDescription -> Text
 goalText (GoalDescription.GoalDescription value) = value
-
-
-noteText :: Note.Note -> Text
-noteText (Note.Note value) = value
 
 
 memoryText :: MemoryContent.MemoryContent -> Text

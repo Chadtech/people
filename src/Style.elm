@@ -219,6 +219,7 @@ module Style exposing
     , s6
     , sNeg128
     , selectControl
+    , selectableListRow
     , setBgColorVar
     , setPrimaryColorVar
     , shrink0
@@ -2087,4 +2088,25 @@ selectControl =
         , Css.property "background-image" "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23B0A69A' stroke-width='1.5'/%3E%3C/svg%3E\")"
         , Css.property "background-repeat" "no-repeat"
         , Css.property "background-position" "right 0.75rem center"
+        ]
+
+
+selectableListRow : Int -> Css.Style
+selectableListRow index =
+    let
+        background : Css.Style
+        background =
+            if modBy 2 index == 0 then
+                bgNightwood0
+
+            else
+                bgNightwood1
+    in
+    batch
+        [ background
+        , p2
+        , wrapAnywhere
+        , pointerCursor
+        , Css.hover [ bgNightwood3, textGray5 ]
+        , Css.focus [ bgNightwood3, textGray5 ]
         ]

@@ -67,8 +67,16 @@ Start the worker (in a separate terminal from `make dev`) with:
 cabal run exe:people-worker -- run http://localhost:9000
 ```
 
-On a conversation page, the Person menu defaults to the local human person
-using the saved profile name. Edit human profile opens the name editor; new
+Search for people in the creation form and select a result to add them to the
+list of people joining. Remove anyone from that list before creating the conversation;
+including the local human is optional. Creation adds the selected people before opening the
+conversation. If adding a participant fails, the form offers a retry that resumes
+adding the remaining people to the same conversation.
+
+On a conversation page, the roster stays visible above the view tabs. The Person
+menu contains eligible participants and defaults to the local human when included,
+otherwise to an AI participant, using saved profile names. Adding someone uses a
+separate Participant to add menu and preserves the selected speaker. Edit human profile opens the name editor; new
 profiles are seeded as Chadtech by the development fixtures. Missing local accounts
 or unresolved message authors fail instead of receiving placeholder names. Type a message and choose Send to post under
 that name, without queuing a model call. Select an AI person
@@ -104,10 +112,8 @@ Enable autonomy for one turn every five minutes; Stop disables it. The interval,
 next due time, run budget, and last speaker live in Acadia tables. Missed
 intervals produce one turn when the worker returns, not a catch-up burst.
 The worker saves the assembled request and context selection in the generation
-record, then calls OpenAI. Validated replies, goals, reflections, goal completion,
-and shared-note changes are committed together. Each changed note also retains an
-immutable revision with its author, generation, and creation time. Load note
-history in the conversation to inspect earlier versions. Stop rejects late results.
+record, then calls OpenAI. Validated replies, goals, reflections, and goal completion
+are committed together. Stop rejects late results.
 OpenAI failures stop the remaining run budget rather than silently retrying paid
 requests. Prompt snapshots exclude the API key.
 
@@ -116,7 +122,7 @@ memories. AI reflections retain their originating turn and are treated as
 fallible context. Use Refresh to see changes made by ongoing AI turns.
 
 The current context budget is measured in UTF-8 bytes, not tokenizer counts.
-Identity, active goals, the shared note, and the latest message must fit;
+Identity, active goals, and the latest message must fit;
 oversized required context fails visibly instead of silently dropping it.
 Relevant memories receive up to one third of the remaining budget, capped at
 6,000 bytes. Older history uses the rest, including unused memory allowance.
@@ -206,7 +212,7 @@ workarounds are localized and covered by lifecycle checks.
 memories. `Conversation.db` owns conversation records, participants, creation,
 queries, and run/autonomy settings. `Generation.db` owns generation records,
 phase and prompt queries, claims, and lease queries. `Chat.db` owns messages and
-note revisions and coordinates atomic turn requests, completion, failure, and
+coordinates atomic turn requests, completion, failure, and
 cancellation across those modules. Their shared backend tables are ordinary
 exports, not client endpoints; the coordinating operations remain transactions.
 `Fixtures.fillDevelopmentData` is the only seeding endpoint and uses one marker.
@@ -215,7 +221,7 @@ modules, selected by `Main` from the loaded person kind. Each owns its model and
 messages; goals and memories belong to `AiPersonPage`. `View.PersonProfile` shares only
 the presentation of common person details.
 
-IDs and values such as notes, message content, revisions, and intervals have
+IDs and values such as message content, revisions, and intervals have
 distinct custom types. Haskell instances for generated types live in
 `People.DomainInstances`; generated files stay generator-owned. ID instances
 support equality, ordering, and decimal display, but deliberately omit `Num`.
@@ -228,8 +234,7 @@ returns people, messages, participants, and generation summaries;
 passing the conversation and all four collections as its required flags. Page
 initialization is pure and makes no requests. Polling reuses the same endpoint
 and flag parser. Missing conversations and failed initial loads remain route
-states in `Main`. Prompt snapshots and note
-history remain on demand.
+states in `Main`. Prompt snapshots remain on demand.
 
 Acadia 0.3.0 requires `Rows` at the response root. These queries must keep unions
 left-associated with a single table on the right, use disjoint side tags plus

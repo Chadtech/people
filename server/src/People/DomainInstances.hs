@@ -19,7 +19,6 @@ import MemoryId (MemoryId (..))
 import MemoryKeywords (MemoryKeywords (..))
 import MessageContent (MessageContent (..))
 import MessageId (MessageId (..))
-import Note (Note (..))
 import PersonId (PersonId (..))
 import PromptSnapshot (PromptSnapshot (..))
 import Revision (Revision (..))
@@ -72,12 +71,6 @@ deriving stock instance Ord GenerationId
 
 instance Show GenerationId where
     show (GenerationId value) = show value
-
-
-deriving stock instance Eq Note
-deriving stock instance Ord Note
-deriving stock instance Show Note
-deriving newtype instance IsString Note
 
 
 deriving stock instance Eq MessageContent

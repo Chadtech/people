@@ -122,7 +122,7 @@ runCycle database requestValue generate =
                         either
                             (ioError . userError . Prompt.errorToString)
                             pure
-                            (Prompt.buildPrompt person roster conversation messages goals memories)
+                            (Prompt.buildPrompt person roster messages goals memories)
                     let
                         snapshot :: Value
                         snapshot =
@@ -146,7 +146,6 @@ runCycle database requestValue generate =
                                     outcome.newGoal
                                     outcome.reflection
                                     outcome.completeGoal
-                                    outcome.sharedNote
                                 )
                             putStrLn ("Completed generation " ++ show generation.id)
         waitForCancellation :: Generation -> IO ()

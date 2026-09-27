@@ -1,14 +1,12 @@
 database module Chat exposing
     ( ConversationPageFlag(..)
     , Message
-    , NoteRevision
     , endpoint expireGeneration
     , endpoint failGeneration
     , endpoint finishGeneration
     , endpoint getConversationDetailsFlags
     , endpoint getConversationPageFlags
     , endpoint getMessages
-    , endpoint getNoteRevisions
     , endpoint requestTurn
     , endpoint sendMessage
     , endpoint stopConversation
@@ -30,7 +28,6 @@ import MemoryContent exposing (MemoryContent(..))
 import MemoryKeywords exposing (MemoryKeywords(..))
 import MessageContent exposing (MessageContent(..))
 import MessageId exposing (MessageId)
-import Note exposing (Note(..))
 import Origin
 import Person exposing (Person)
 import PersonId exposing (PersonId)
@@ -51,28 +48,6 @@ type alias Message =
     , author : PersonId
     , content : MessageContent
     }
-
-
-type alias NoteRevision =
-    { generationId : GenerationId
-    , conversationId : ConversationId
-    , author : PersonId
-    , content : Note
-    , createdAt : Posix
-    }
-
-
-noteRevisions : Table Security.Unrestricted NoteRevision
-noteRevisions :=
-    Table.table
-        { primary = .generationId
-        , security = Security.unrestricted
-        , indexes = [ Table.btree Table.NotUnique .conversationId ]
-        , constraints =
-            [ Table.foreignKey .conversationId (Table.references Conversation.conversations .id)
-            , Table.foreignKey .generationId (Table.references Generation.generations .id)
-            ]
-        }
 
 
 messages : Table Security.Unrestricted Message
@@ -268,7 +243,8 @@ sendMessage cookies conversationId (MessageContent content) =
                 LocalAccount.currentPerson cookies
 
             () :=
-                Conversation.addParticipant cookies conversationId author
+                Store.ensure Conversation.participants
+                    (\row -> row.conversationId == conversationId && row.personId == author)
 
             id : MessageId
             id :=
@@ -339,9 +315,8 @@ finishGeneration :
     -> GoalDescription
     -> MemoryContent
     -> Maybe GoalId
-    -> Note
     -> Transaction ()
-finishGeneration _ id content newGoal memory completedGoal (Note note) =
+finishGeneration _ id content newGoal memory completedGoal =
     let
         now : Posix
         now :=
@@ -366,28 +341,6 @@ finishGeneration _ id content newGoal memory completedGoal (Note note) =
                         , revision = Revision.nextRevision row.revision
                     }
                 )
-
-        -- Keep the empty-string decision outside SQL row expressions: Acadia
-        -- 0.3.0 can bind an empty endpoint string as SQL NULL in that context.
-        () :=
-            if note == "" then
-                Transaction.succeed ()
-
-            else
-                let
-                    () :=
-                        Store.update Conversation.conversations
-                            (\row -> row.id == generation.conversationId)
-                            (\row -> { row | note = Note note })
-                in
-                Table.insert noteRevisions
-                    Security.Unrestricted
-                    { generationId = id
-                    , conversationId = generation.conversationId
-                    , author = generation.speaker
-                    , content = Note note
-                    , createdAt = now
-                    }
 
         () :=
             Table.insert messages
@@ -467,13 +420,6 @@ stopConversation _ conversationId =
                 , revision = Revision.nextRevision row.revision
             }
         )
-
-
-getNoteRevisions : Cookies -> ConversationId -> Transaction (Rows NoteRevision)
-getNoteRevisions _ conversationId =
-    Table.access noteRevisions Security.Unrestricted
-        |> R.filter (\row -> row.conversationId == conversationId)
-        |> R.selectAll
 
 
 expireGeneration : Cookies -> GenerationId -> Transaction ()

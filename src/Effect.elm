@@ -7,6 +7,7 @@ module Effect exposing
     , load
     , map
     , none
+    , pushRoute
     , pushUrl
     , toCmd
     , with

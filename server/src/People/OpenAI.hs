@@ -6,7 +6,6 @@ module People.OpenAI (Client, Outcome (..), connect, requestValue, generate, par
 import qualified GoalDescription
 import qualified MemoryContent
 import qualified MessageContent
-import qualified Note
 import People.DomainInstances ()
 
 import Control.Exception (try)
@@ -47,7 +46,6 @@ data Outcome = Outcome
     , newGoal :: GoalDescription.GoalDescription
     , reflection :: MemoryContent.MemoryContent
     , completeGoal :: Maybe GoalId.GoalId
-    , sharedNote :: Note.Note
     }
     deriving (Eq, Show)
 
@@ -107,7 +105,7 @@ requestValue (Client _ _ model) prompt =
         ]
     where
         fields :: [Text]
-        fields = ["reply", "new_goal", "reflection", "complete_goal", "shared_note"]
+        fields = ["reply", "new_goal", "reflection", "complete_goal"]
         fromStringKey :: Text -> Data.Aeson.Key.Key
         fromStringKey = Data.Aeson.Key.fromText
 
@@ -189,19 +187,17 @@ outputTexts = withObject "output item" $ \o -> do
 parseOutcome :: Value -> Parser Outcome
 parseOutcome = withObject "person turn" $ \o -> do
     unless
-        (KeyMap.size o == 5)
+        (KeyMap.size o == 4)
         (fail "Person-turn output contains unexpected fields.")
     response <- T.strip <$> o .: "reply"
     goal <- T.strip <$> o .: "new_goal"
     memory <- T.strip <$> o .: "reflection"
     completed <- T.strip <$> o .: "complete_goal"
-    note <- T.strip <$> o .: "shared_note"
     unless
         ( not (T.null response)
             && T.length response <= 12000
             && T.length goal <= 1000
             && T.length memory <= 2000
-            && T.length note <= 12000
         )
         ( fail "Person-turn output exceeded the application limits or had an empty reply."
         )
@@ -221,5 +217,4 @@ parseOutcome = withObject "person turn" $ \o -> do
             (GoalDescription.GoalDescription goal)
             (MemoryContent.MemoryContent memory)
             goalId
-            (Note.Note note)
         )

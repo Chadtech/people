@@ -21,8 +21,6 @@ import ConversationTitle exposing (ConversationTitle(..))
 import Cookies exposing (Cookies)
 import GenerationId exposing (GenerationId)
 import IntervalSeconds exposing (IntervalSeconds(..))
-import LocalAccount
-import Note exposing (Note(..))
 import Person exposing (Person)
 import PersonId exposing (PersonId)
 import Revision exposing (Revision(..))
@@ -41,7 +39,6 @@ type alias Conversation =
     , revision : Revision
     , activeGeneration : Maybe GenerationId
     , remainingTurns : TurnCount
-    , note : Note
     , autonomous : Bool
     , intervalSeconds : IntervalSeconds
     , nextTurnAt : Posix
@@ -106,7 +103,6 @@ createConversation cookies title personId =
                 , revision = Revision 0
                 , activeGeneration = Nothing
                 , remainingTurns = TurnCount 0
-                , note = Note ""
                 , lastSpeaker = Nothing
                 , autonomous = False
                 , intervalSeconds = IntervalSeconds 300
@@ -115,13 +111,6 @@ createConversation cookies title personId =
 
         () :=
             addParticipant cookies id personId
-
-        human : PersonId
-        human :=
-            LocalAccount.currentPerson cookies
-
-        () :=
-            addParticipant cookies id human
     in
     Transaction.succeed id
 

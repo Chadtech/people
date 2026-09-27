@@ -7,7 +7,6 @@ import AiPersonProfile (AiPersonProfile)
 import qualified LocalAccount
 import qualified MemoryContent
 import qualified MessageContent
-import qualified Note
 import People.DomainInstances ()
 import qualified PromptSnapshot
 import qualified Revision
@@ -199,6 +198,14 @@ main = do
         )
     conversationId <-
         run (Conversation.createConversation "MVP integration conversation" personId)
+    initialMembers <- run (Conversation.getParticipants conversationId)
+    assert (initialMembers == [personId]) "Creation does not automatically add the local human"
+    mustFail (run (Chat.sendMessage conversationId "Not a participant"))
+    run (Conversation.addParticipant conversationId initialHuman)
+    run (Conversation.addParticipant conversationId initialHuman)
+    selectedMembers <- run (Conversation.getParticipants conversationId)
+    assert (sort selectedMembers == sort [personId, initialHuman])
+        "Explicit participants are added exactly once"
     checkConversationPageFlags database
     otherConversationId <-
         run (Conversation.createConversation "Other integration conversation" personId)
@@ -257,7 +264,6 @@ main = do
             "Explore rhythm"
             "We discussed rhythm."
             Nothing
-            "Shared rhythm plan"
         )
     checkConversationRefresh database conversationId
     checkConversationRefresh database otherConversationId
@@ -276,20 +282,12 @@ main = do
                 "Duplicate goal"
                 "Duplicate memory"
                 Nothing
-                ""
             )
         )
     conversationRows <- run Conversation.getConversations
     let
         conversation :: Conversation
         [conversation] = filter (\c -> c.id == conversationId) conversationRows
-    assert (conversation.note == "Shared rhythm plan") "Shared note round trip"
-    [firstRevision] <- run (Chat.getNoteRevisions conversationId)
-    assert
-        ( firstRevision.generationId == generationId
-            && firstRevision.content == "Shared rhythm plan"
-        )
-        "Note revision records its source generation"
     cancelledId <-
         run (Chat.requestTurn conversationId conversation.revision personId)
     run (Generation.claimGeneration cancelledId 180)
@@ -303,7 +301,6 @@ main = do
                 "Late goal"
                 "Late memory"
                 Nothing
-                "Late note"
             )
         )
     finalMessages <- run (Chat.getMessages conversationId)
@@ -316,8 +313,8 @@ main = do
         stopped :: Conversation
         [stopped] = filter (\c -> c.id == conversationId) afterStop
     assert
-        (stopped.note == "Shared rhythm plan" && stopped.remainingTurns == 0)
-        "Cancellation preserves note and stops scheduling"
+        (stopped.remainingTurns == 0)
+        "Cancellation stops scheduling"
     otherPerson <- run (Person.createNewPerson "Other integration person")
     run (Goal.createGoal otherPerson "A private goal")
     [otherGoal] <- run (Goal.getGoals otherPerson)
@@ -332,27 +329,17 @@ main = do
                 "Rejected goal"
                 "Rejected memory"
                 (Just otherGoal.id)
-                "Rejected note"
             )
         )
     rolledBackMessages <- run (Chat.getMessages conversationId)
     rolledBackGoals <- run (Goal.getGoals personId)
     rolledBackMemories <- run (Memory.getMemories personId)
-    rolledBackConversations <- run Conversation.getConversations
-    let
-        rolledBack :: Conversation
-        [rolledBack] = filter (\c -> c.id == conversationId) rolledBackConversations
     assert
         ( length rolledBackMessages == 2
             && length rolledBackGoals == 1
             && length rolledBackMemories == 1
-            && rolledBack.note == "Shared rhythm plan"
         )
         "Invalid goal completion rolls back every action"
-    rolledBackNotes <- run (Chat.getNoteRevisions conversationId)
-    assert
-        (length rolledBackNotes == 1)
-        "Cancelled and invalid actions cannot append note revisions"
     let
         ownGoal :: Goal.Goal
         [ownGoal] = goals
@@ -363,7 +350,6 @@ main = do
             ""
             ""
             (Just ownGoal.id)
-            "Finished rhythm plan"
         )
     [completed] <- run (Goal.getGoals personId)
     assert
@@ -417,20 +403,11 @@ main = do
             if T.isInfixOf "Patient and analytical." (Prompt.context prompt)
                 then do
                     assert
-                        (T.isInfixOf "A drafted the shared rhythm plan." (Prompt.context prompt))
-                        "Second AI sees the first AI's saved note"
-                    assert
                         (T.isInfixOf "A useful next step." (Prompt.context prompt))
                         "Second AI sees the first AI's reply"
                 else pure ()
             atomicModifyIORef' calls (\n -> (n + 1, ()))
-            let
-                note :: Note.Note
-                note =
-                    if T.isInfixOf "Patient and analytical." (Prompt.context prompt)
-                        then "B revised the shared rhythm plan."
-                        else "A drafted the shared rhythm plan."
-            pure (OpenAI.Outcome "A useful next step." "" "" Nothing note)
+            pure (OpenAI.Outcome "A useful next step." "" "" Nothing)
         cycleOnce :: Database.Database -> IO ()
         cycleOnce connection = Worker.runCycle connection (const (object [])) generate
     -- A fresh database connection emulates worker startup using saved state.
@@ -462,19 +439,6 @@ main = do
     assert
         (case authors of [a, b, c] -> a /= b && a == c; _ -> False)
         "Speakers alternate across autonomous and bounded turns"
-    activityRevisions <- run (Chat.getNoteRevisions autoId)
-    assert
-        (length activityRevisions == 3)
-        "Every accepted note change keeps its revision"
-    assert
-        ( any
-            (\revision -> revision.content == "A drafted the shared rhythm plan.")
-            activityRevisions
-            && any
-                (\revision -> revision.content == "B revised the shared rhythm plan.")
-                activityRevisions
-        )
-        "Two AI participants create and revise a shared artifact"
     putStrLn "Checking expired worker recovery"
     recoveryRows <- run Conversation.getConversations
     let
@@ -487,7 +451,7 @@ main = do
     threadDelay 1200000
     mustFail (run (Generation.savePrompt lostId "Too late"))
     mustFail
-        (run (Chat.finishGeneration lostId "Late reply" "" "" Nothing "Late note"))
+        (run (Chat.finishGeneration lostId "Late reply" "" "" Nothing))
     cycleOnce restartedConnection
     recoveredRows <- run Conversation.getConversations
     let
@@ -504,6 +468,7 @@ main = do
     assert (finalCount == 3) "Recovery does not repeat the uncertain API call"
     putStrLn "Checking memory selection under history pressure"
     promptId <- run (Conversation.createConversation "Prompt budget integration" personId)
+    run (Conversation.addParticipant promptId initialHuman)
     run (Goal.createGoal personId "REQUIRED-GOAL: Compare rhythm structures.")
     run
         ( Memory.createMemory
@@ -542,28 +507,23 @@ main = do
                 ""
                 ""
                 Nothing
-                ""
             )
     Just promptPerson <- run (Person.loadPersonPage personId)
     promptProfile <- requireAiPersonProfile promptPerson.person
-    promptRows <- run Conversation.getConversations
-    let
-        promptConversation :: Conversation
-        [promptConversation] = filter (\c -> c.id == promptId) promptRows
     promptHistory <- run (Chat.getMessages promptId)
     promptGoals <- run (Goal.getGoals personId)
     promptMemories <- run (Memory.getMemories personId)
     Just promptHuman <- run (Person.loadPersonPage initialHuman)
     assert
         (isLeft (Prompt.buildPrompt promptPerson.person [promptPerson.person]
-            promptConversation promptHistory promptGoals promptMemories))
+            promptHistory promptGoals promptMemories))
         "An unresolved message author must fail prompt assembly"
     blankPersonId <- run (Person.createNewPerson "  ")
     Just blankPerson <- run (Person.loadPersonPage blankPersonId)
     assert
         (isLeft (Prompt.buildPrompt blankPerson.person
             [promptPerson.person, promptHuman.person]
-            promptConversation promptHistory promptGoals promptMemories))
+            promptHistory promptGoals promptMemories))
         "A blank person name must fail prompt assembly"
     prompt <-
         either
@@ -572,7 +532,6 @@ main = do
             ( Prompt.buildPrompt
                 promptPerson.person
                 [promptPerson.person, promptHuman.person]
-                promptConversation
                 promptHistory
                 promptGoals
                 promptMemories
@@ -613,7 +572,6 @@ main = do
             ( Prompt.buildPrompt
                 oversizedPerson.person
                 [oversizedPerson.person, promptHuman.person]
-                promptConversation
                 promptHistory
                 promptGoals
                 promptMemories
@@ -630,6 +588,7 @@ main = do
             )
     cancellationId <-
         run (Conversation.createConversation "Worker cancellation integration" personId)
+    run (Conversation.addParticipant cancellationId initialHuman)
     run (Chat.sendMessage cancellationId "Please stop this turn.")
     cancelledTurn <- run (Chat.requestTurn cancellationId 0 personId)
     finishedModel <- newIORef False
@@ -640,7 +599,7 @@ main = do
             threadDelay 1500000
             writeIORef finishedModel True
             pure
-                (OpenAI.Outcome "Late message" "Late goal" "Late memory" Nothing "Late note")
+                (OpenAI.Outcome "Late message" "Late goal" "Late memory" Nothing)
     Worker.runCycle database (const (object [])) stoppedModel
     modelFinished <- readIORef finishedModel
     assert (not modelFinished) "Cancellation interrupts the pending model request"
@@ -649,10 +608,9 @@ main = do
         (case stoppedPhase of Just Generation.Cancelled -> True; _ -> False)
         "Worker observes cancelled phase"
     cancellationMessages <- run (Chat.getMessages cancellationId)
-    cancellationNotes <- run (Chat.getNoteRevisions cancellationId)
     assert
-        (length cancellationMessages == 1 && null cancellationNotes)
-        "Cancelled model output creates no message or note"
+        (length cancellationMessages == 1)
+        "Cancelled model output creates no message"
     putStrLn "Checking human identity and independent posting"
     human <- run LocalAccount.getCurrentPerson
     sameHuman <- run LocalAccount.getCurrentPerson
@@ -681,10 +639,10 @@ main = do
     Just aiBeforeRename <- run (Person.loadPersonPage personId)
     mustFail (run (Person.updateHumanPersonName personId aiBeforeRename.person.revision "Human name"))
     humanConversation <- run (Conversation.createConversation "Human participation" personId)
-    Just humanConversationState <- run (Conversation.getConversation humanConversation)
+    run (Conversation.addParticipant humanConversation human)
     assert
         (isLeft (Prompt.buildPrompt humanProfile.person [humanProfile.person]
-            humanConversationState [] [] []))
+            [] [] []))
         "Prompt assembly rejects a human generation target"
     beforeHuman <- run (Generation.getGenerationSummaries humanConversation)
     run (Chat.sendMessage humanConversation "A standalone human message")
@@ -708,7 +666,7 @@ main = do
             run (Chat.sendMessage humanConversation "Posted while the AI was thinking")
             assert (not (T.isInfixOf "Posted while the AI was thinking" (Prompt.context prompt)))
                 "An in-flight reply keeps the context it actually saw"
-            pure (OpenAI.Outcome "AI response" "" "" Nothing "")
+            pure (OpenAI.Outcome "AI response" "" "" Nothing)
     Worker.runCycle database (const (object [])) concurrentHuman
     humanHistory <- run (Chat.getMessages humanConversation)
     assert (map (\message -> message.author) humanHistory == [human, human, personId])

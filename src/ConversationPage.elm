@@ -35,7 +35,6 @@ import List.Util as ListUtil
 import MessageContent
 import MessageContent.Util as MessageContentUtil
 import MessageId.Util as MessageIdUtil
-import Note.Util as NoteUtil
 import Person exposing (Person)
 import PersonId exposing (PersonId)
 import PersonId.Util as PersonIdUtil
@@ -66,13 +65,12 @@ type alias Model =
     , people : List Person
     , messages : List (Attributed Message)
     , participants : List Person
-    , noteHistory : Maybe (List (Attributed Chat.NoteRevision))
     , prompts : Dict String String
     , loadingPrompts : Set String
-    , loadingNotes : Bool
     , generations : List Generation.GenerationSummary
     , selectedView : ConversationView
     , draft : String
+    , participantToAdd : String
     , speaker : String
     , speakerError : Maybe SpeakerError
     , pending : Bool
@@ -91,7 +89,6 @@ type Error
     | ConversationUnavailable
     | PromptNotFound
     | PromptLoadFailed
-    | NoteHistoryLoadFailed
     | ParticipantSelectionRequired
     | MutationFailed
     | MessageSendFailed
@@ -100,7 +97,6 @@ type Error
 
 type ConversationView
     = MessagesView
-    | NotesView
     | HistoryView
 
 
@@ -117,9 +113,8 @@ type Msg
     | PageFlagsResponseReceived (Remote Flags)
     | PromptInspectionClicked GenerationId
     | PromptResponseReceived GenerationId (Remote PromptSnapshot.PromptSnapshot)
-    | NoteHistoryClicked
-    | NoteHistoryResponseReceived (Maybe (List Chat.NoteRevision))
     | DraftInputChanged String
+    | ParticipantSelectionChanged String
     | SpeakerSelectionChanged String
     | SendButtonClicked
     | ReplyButtonClicked
@@ -167,13 +162,19 @@ init sharedModel flags =
     , messages = flags.messages
     , participants = flags.participants
     , generations = flags.generations
-    , noteHistory = Nothing
-    , loadingNotes = False
     , prompts = Dict.empty
     , loadingPrompts = Set.empty
     , selectedView = MessagesView
     , draft = ""
-    , speaker = PersonIdUtil.toString flags.currentPerson
+    , participantToAdd = ""
+    , speaker =
+        flags.participants
+            |> List.filter (\p -> p.id == flags.currentPerson || isAiPerson p)
+            |> List.partition (\p -> p.id == flags.currentPerson)
+            |> (\( local, others ) -> local ++ others)
+            |> List.head
+            |> Maybe.map (.id >> PersonIdUtil.toString)
+            |> Maybe.withDefault ""
     , speakerError = Nothing
     , pending = False
     , error = Nothing
@@ -338,9 +339,6 @@ errorToString error =
         PromptLoadFailed ->
             "Could not load that prompt. Try again."
 
-        NoteHistoryLoadFailed ->
-            "Could not load note history. Try again."
-
         ParticipantSelectionRequired ->
             "Choose a person to add."
 
@@ -466,12 +464,6 @@ update msg model =
 
                 Remote.Found flags ->
                     let
-                        refreshedHistory : Maybe (List (Attributed Chat.NoteRevision))
-                        refreshedHistory =
-                            model.noteHistory
-                                |> Maybe.andThen
-                                    (List.map .value >> resolveAuthors flags.people)
-
                         refreshedModel : Model
                         refreshedModel =
                             { model
@@ -479,15 +471,16 @@ update msg model =
                                 , people = flags.people
                                 , messages = flags.messages
                                 , participants = flags.participants
+                                , participantToAdd =
+                                    if List.any (\person -> PersonIdUtil.toString person.id == model.participantToAdd) flags.participants then
+                                        ""
+
+                                    else
+                                        model.participantToAdd
                                 , generations = flags.generations
-                                , noteHistory = refreshedHistory
                             }
                     in
-                    if model.noteHistory /= Nothing && refreshedHistory == Nothing then
-                        ( refreshedModel |> setError NoteHistoryLoadFailed, E.none )
-
-                    else
-                        ( refreshedModel, E.none )
+                    ( refreshedModel, E.none )
 
         PromptInspectionClicked generationId ->
             if Set.member (GenerationIdUtil.toString generationId) model.loadingPrompts then
@@ -540,30 +533,11 @@ update msg model =
                         |> setError PromptLoadFailed
                         |> E.withOut
 
-        NoteHistoryClicked ->
-            if model.loadingNotes then
-                ( model, E.none )
-
-            else
-                ( { model | loadingNotes = True }
-                , E.attempt NoteHistoryResponseReceived (Chat.getNoteRevisions model.conversation.id)
-                )
-
-        NoteHistoryResponseReceived result ->
-            case Maybe.andThen (resolveAuthors model.people) result of
-                Just revisions ->
-                    ( { model | loadingNotes = False, noteHistory = Just revisions }
-                    , E.none
-                    )
-
-                Nothing ->
-                    ( { model | loadingNotes = False }
-                        |> setError NoteHistoryLoadFailed
-                    , E.none
-                    )
-
         DraftInputChanged value ->
             ( { model | draft = value }, E.none )
+
+        ParticipantSelectionChanged value ->
+            ( { model | participantToAdd = value }, E.none )
 
         SpeakerSelectionChanged value ->
             { model | speaker = value }
@@ -620,7 +594,7 @@ update msg model =
                 model
 
         AddParticipantButtonClicked ->
-            case PersonIdUtil.fromString model.speaker of
+            case PersonIdUtil.fromString model.participantToAdd of
                 Nothing ->
                     model
                         |> setError ParticipantSelectionRequired
@@ -708,17 +682,6 @@ conversationView model conversation =
                 "Autonomy is off. You can run individual replies, a short "
                     ++ "conversation, or enable ongoing turns."
 
-        sharedNote : Html Msg
-        sharedNote =
-            if String.isEmpty (NoteUtil.toString conversation.note) then
-                H.p [] [ H.text "No shared note yet." ]
-
-            else
-                H.section [ A.css [ S.col, S.g2 ] ]
-                    [ H.h2 [ A.css [ S.textGray3 ] ] [ H.text "Shared note" ]
-                    , pre (NoteUtil.toString conversation.note)
-                    ]
-
         messages : Html Msg
         messages =
             let
@@ -796,22 +759,57 @@ conversationView model conversation =
                         ]
                         [ H.text "Choose a person" ]
                         :: List.map personOption
-                            (List.filter (\p -> p.id == model.currentPerson || isAiPerson p) model.people)
+                            (List.filter (\p -> p.id == model.currentPerson || isAiPerson p) model.participants)
+                    )
+                ]
+
+        participantSelector : Html Msg
+        participantSelector =
+            let
+                availablePeople : List Person
+                availablePeople =
+                    List.filter
+                        (\person -> not (List.any (\member -> member.id == person.id) model.participants))
+                        model.people
+
+                personOption : Person -> Html Msg
+                personOption person =
+                    H.option
+                        [ A.value (PersonIdUtil.toString person.id)
+                        , A.selected (model.participantToAdd == PersonIdUtil.toString person.id)
+                        ]
+                        [ H.text person.name ]
+            in
+            H.label [ A.css [ S.col, S.g2 ] ]
+                [ H.text "Participant to add"
+                , H.select
+                    [ Ev.onInput ParticipantSelectionChanged, A.css [ S.selectControl ] ]
+                    (H.option [ A.value "", A.selected (model.participantToAdd == "") ] [ H.text "Choose a person to add" ]
+                        :: List.map personOption availablePeople
                     )
                 ]
 
         controls : Html Msg
         controls =
             let
+                autonomyControl : Html Msg
+                autonomyControl =
+                    if conversation.autonomous then
+                        H.text ""
+
+                    else
+                        H.fieldset
+                            [ A.disabled (model.pending || conversation.activeGeneration /= Nothing)
+                            , A.css [ S.border0, S.minW0 ]
+                            ]
+                            [ Button.secondary "Enable autonomy every 5 minutes"
+                                AutonomyButtonClicked
+                                |> Button.toHtml
+                            ]
+
                 controlsNeeded : Bool
                 controlsNeeded =
-                    model.speaker
-                        /= PersonIdUtil.toString model.currentPerson
-                        || model.speakerError
-                        /= Nothing
-                        || conversation.activeGeneration
-                        /= Nothing
-                        || conversation.autonomous
+                    conversation.autonomous
 
                 openAttributes : List (Attribute Msg)
                 openAttributes =
@@ -826,24 +824,19 @@ conversationView model conversation =
                 [ H.summary [ A.css [ S.pointerCursor ] ]
                     [ H.text "Participants and automation" ]
                 , H.div [ A.css [ S.col, S.g2, S.py2 ] ]
-                    [ H.p []
-                        [ H.text
-                            ("Participants: "
-                                ++ String.join ", " (List.map .name model.participants)
-                            )
-                        ]
-                    , H.p [ A.attribute "role" "status" ] [ H.text autonomyStatus ]
+                    [ H.p [ A.attribute "role" "status" ] [ H.text autonomyStatus ]
                     , H.fieldset
                         [ A.disabled model.pending
-                        , A.css [ S.border0, S.minW0 ]
+                        , A.css [ S.border0, S.minW0, S.col, S.g2 ]
                         ]
-                        [ Button.secondary "Add participant" AddParticipantButtonClicked
+                        [ participantSelector
+                        , Button.secondary "Add participant" AddParticipantButtonClicked
                             |> Button.toHtml
                         ]
                     , H.a
                         [ Route.href (Route.Person model.currentPerson), A.css [ S.link ] ]
                         [ H.text "Edit human profile" ]
-                    , replyControlsView model conversation
+                    , autonomyControl
                     ]
                 ]
 
@@ -888,7 +881,6 @@ conversationView model conversation =
                 , A.css [ S.row, S.flexWrap, S.g2 ]
                 ]
                 [ viewButton MessagesView "Conversation"
-                , viewButton NotesView "Notes"
                 , viewButton HistoryView "Generation history"
                 ]
 
@@ -903,13 +895,10 @@ conversationView model conversation =
                             [ messages
                             , personSelector
                             , composerView model
+                            , replyControlsView model conversation
                             ]
                         , controls
                         ]
-
-                NotesView ->
-                    H.div [ A.css [ S.col, S.g3 ] ]
-                        [ sharedNote, noteHistoryView model ]
 
                 HistoryView ->
                     generationHistory
@@ -931,6 +920,8 @@ conversationView model conversation =
             [ H.text "All conversations" ]
         , H.h1 [ A.css [ S.textGray3 ] ]
             [ H.text (ConversationTitleUtil.toString conversation.title) ]
+        , H.p []
+            [ H.text ("Participants: " ++ String.join ", " (List.map .name model.participants)) ]
         , viewSelector
         , H.div [ A.id "conversation-content" ] [ selectedContent ]
         , errorStatus
@@ -1005,16 +996,6 @@ replyControlsView model conversation =
                             (TurnCount.TurnCount (Acadia.UInt8.fromInt turns))
                         )
                         |> Button.toHtml
-
-                autonomyButton : Html Msg
-                autonomyButton =
-                    if conversation.autonomous then
-                        H.text ""
-
-                    else
-                        Button.secondary "Enable autonomy every 5 minutes"
-                            AutonomyButtonClicked
-                            |> Button.toHtml
             in
             if conversation.activeGeneration == Nothing then
                 H.div
@@ -1027,7 +1008,6 @@ replyControlsView model conversation =
                     [ selectedReply
                     , runButton "Run 1 turn" 1
                     , runButton "Run 6 turns" 6
-                    , autonomyButton
                     ]
 
             else
@@ -1047,65 +1027,6 @@ replyControlsView model conversation =
             [ speakerFeedback ]
         , replyControls
         , Button.secondary "Stop" StopButtonClicked |> Button.toHtml
-        ]
-
-
-noteHistoryView : Model -> Html Msg
-noteHistoryView model =
-    let
-        loadLabel : String
-        loadLabel =
-            if model.loadingNotes then
-                "Loading note history…"
-
-            else
-                "Load / refresh note history"
-
-        history : Html Msg
-        history =
-            let
-                revisionView : Attributed Chat.NoteRevision -> Html Msg
-                revisionView revision =
-                    H.details [ A.css [ S.col, S.g2 ] ]
-                        [ H.summary []
-                            [ H.text
-                                ("Turn "
-                                    ++ GenerationIdUtil.toString revision.value.generationId
-                                    ++ " — "
-                                    ++ revision.author.name
-                                )
-                            ]
-                        , pre (NoteUtil.toString revision.value.content)
-                        ]
-            in
-            case model.noteHistory of
-                Nothing ->
-                    H.text ""
-
-                Just [] ->
-                    H.p [] [ H.text "No note revisions yet." ]
-
-                Just revisions ->
-                    H.div [ A.css [ S.col, S.g2 ] ]
-                        (revisions
-                            |> List.sortBy
-                                (\revision ->
-                                    String.padLeft 20
-                                        '0'
-                                        (GenerationIdUtil.toString revision.value.generationId)
-                                )
-                            |> List.reverse
-                            |> List.map revisionView
-                        )
-    in
-    H.section [ A.css [ S.col, S.g2 ] ]
-        [ H.h2 [ A.css [ S.textGray3 ] ] [ H.text "Note history" ]
-        , H.fieldset
-            [ A.disabled model.loadingNotes
-            , A.css [ S.border0, S.minW0 ]
-            ]
-            [ Button.secondary loadLabel NoteHistoryClicked |> Button.toHtml ]
-        , history
         ]
 
 

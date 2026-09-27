@@ -27,7 +27,6 @@ turn reply goalId =
         , "new_goal" .= ("" :: T.Text)
         , "reflection" .= ("" :: T.Text)
         , "complete_goal" .= goalId
-        , "shared_note" .= ("" :: T.Text)
         ]
 
 
@@ -88,12 +87,12 @@ main = do
             "Malformed environment assignment was accepted"
     assert
         ( OpenAI.parseResponse (envelope "completed" (turn "Hello" ""))
-            == Right (OpenAI.Outcome "Hello" "" "" Nothing "")
+            == Right (OpenAI.Outcome "Hello" "" "" Nothing)
         )
         "Valid response without actions"
     assert
         ( OpenAI.parseResponse (envelope "completed" (turn "Done" "42"))
-            == Right (OpenAI.Outcome "Done" "" "" (Just (GoalId.GoalId 42)) "")
+            == Right (OpenAI.Outcome "Done" "" "" (Just (GoalId.GoalId 42)))
         )
         "Valid goal completion"
     forM_
