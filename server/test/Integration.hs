@@ -3,10 +3,13 @@
 
 module Main (main) where
 
+import AIProfile (AIProfile)
+import qualified LocalAccount
 import qualified MemoryContent
 import qualified MessageContent
 import qualified Note
 import People.DomainInstances ()
+import qualified PromptSnapshot
 import qualified Revision
 
 import qualified Chat
@@ -26,6 +29,7 @@ import Data.Either (isLeft)
 import Data.List (sort)
 import Data.Maybe (isNothing)
 import Data.IORef
+import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as Text
 import Data.Word (Word64)
@@ -53,6 +57,20 @@ mustFail operation = do
     case result of
         Left _ -> pure ()
         Right _ -> ioError (userError "Expected transaction rejection")
+
+
+requireAIProfile :: Person -> IO AIProfile
+requireAIProfile person =
+    case person.kind of
+        Person.AI profile -> pure profile
+        Person.Human -> ioError (userError "Expected an AI test person")
+
+
+profileFields :: Person -> Maybe (Text, Text)
+profileFields person =
+    case person.kind of
+        Person.AI profile -> Just (profile.identity, profile.aspirations)
+        Person.Human -> Nothing
 
 
 checkConversationPageFlags :: Database.Database -> IO ()
@@ -104,15 +122,18 @@ checkConversationRefresh database conversationId = do
         (null [row.id | Chat.ConversationFlag row <- details])
         "Details refresh omits the conversation"
     assert
-        (length details == length people + length messages + length participants + length generations)
+        (length details == 1 + length people + length messages + length participants + length generations)
         "Details refresh has exactly one flag per source row"
     assert
         (length full == length details + maybe 0 (const 1) conversation)
         "Full refresh adds only the conversation flag"
+    currentPerson <- run LocalAccount.getCurrentPerson
     forM_ [full, details] $ \flags -> do
+        assert ([personId | Chat.CurrentPersonFlag personId <- flags] == [currentPerson])
+            "Refresh includes the server-owned human identity exactly once"
         assert
-            (sort [(row.id, row.name, row.identity, row.aspirations) | Chat.PersonFlag row <- flags]
-                == sort (map (\row -> (row.id, row.name, row.identity, row.aspirations)) people))
+            (sort [(row.id, row.name, profileFields row) | Chat.PersonFlag row <- flags]
+                == sort (map (\row -> (row.id, row.name, profileFields row)) people))
             "Refresh preserves every person exactly once"
         assert
             (sort [(row.id, row.conversationId, row.author, row.content) | Chat.MessageFlag row <- flags]
@@ -149,19 +170,21 @@ main = do
                 "Curious and precise."
                 "Understand music."
             )
-    assert (saved.person.identity == "Curious and precise.") "Identity round trip"
+    savedProfile <- requireAIProfile saved.person
+    assert (savedProfile.identity == "Curious and precise.") "Identity round trip"
     cleared <-
         run (Person.updatePersonIdentity personId saved.person.revision "" "")
+    clearedProfile <- requireAIProfile cleared.person
     assert
-        (T.null cleared.person.identity && T.null cleared.person.aspirations)
+        (T.null clearedProfile.identity && T.null clearedProfile.aspirations)
         "Empty identity fields round trip"
     _ <-
         run
             ( Person.updatePersonIdentity
                 personId
                 cleared.person.revision
-                saved.person.identity
-                saved.person.aspirations
+                savedProfile.identity
+                savedProfile.aspirations
             )
     putStrLn "Checking identity conflict"
     mustFail
@@ -173,11 +196,6 @@ main = do
     let
         conversationNumber :: Word64
         ConversationId.ConversationId conversationNumber = conversationId
-        personNumber :: Word64
-        PersonId.PersonId personNumber = personId
-    assert
-        (conversationNumber == personNumber)
-        "Page flag coverage exercises overlapping numeric IDs"
     checkConversationPageFlags database
     otherConversationId <-
         run (Conversation.createConversation "Other integration conversation" personId)
@@ -196,7 +214,8 @@ main = do
     assert (null empty) "Empty row decoding"
     members <- run (Conversation.getParticipants conversationId)
     print (length members)
-    generationId <- run (Chat.requestTurn conversationId 0 personId "Hello")
+    run (Chat.sendMessage conversationId "Hello")
+    generationId <- run (Chat.requestTurn conversationId 0 personId)
     firstMessages <- run (Chat.getMessages conversationId)
     let
         generationNumber :: Word64
@@ -209,7 +228,7 @@ main = do
         "Refresh coverage overlaps person, participant, message, generation, and conversation IDs"
     checkConversationRefresh database conversationId
     putStrLn "Checking duplicate request"
-    mustFail (run (Chat.requestTurn conversationId 0 personId "Duplicate"))
+    mustFail (run (Chat.requestTurn conversationId 0 personId))
     run (Generation.claimGeneration generationId 180)
     putStrLn "Checking duplicate claim"
     mustFail (run (Generation.claimGeneration generationId 180))
@@ -269,7 +288,7 @@ main = do
         )
         "Note revision records its source generation"
     cancelledId <-
-        run (Chat.requestTurn conversationId conversation.revision personId "")
+        run (Chat.requestTurn conversationId conversation.revision personId)
     run (Generation.claimGeneration cancelledId 180)
     run (Chat.stopConversation conversationId)
     putStrLn "Checking stale completion"
@@ -300,7 +319,7 @@ main = do
     run (Goal.createGoal otherPerson "A private goal")
     [otherGoal] <- run (Goal.getGoals otherPerson)
     protectedId <-
-        run (Chat.requestTurn conversationId stopped.revision personId "")
+        run (Chat.requestTurn conversationId stopped.revision personId)
     run (Generation.claimGeneration protectedId 180)
     mustFail
         ( run
@@ -361,7 +380,7 @@ main = do
         scheduled :: Conversation
         [scheduled] = filter (\c -> c.id == conversationId) scheduledRows
     assert (scheduled.remainingTurns == 20) "Run length is capped"
-    budgetId <- run (Chat.requestTurn conversationId scheduled.revision personId "")
+    budgetId <- run (Chat.requestTurn conversationId scheduled.revision personId)
     busyRows <- run Conversation.getScheduledConversations
     assert
         (null (filter (\c -> c.id == conversationId) busyRows))
@@ -436,7 +455,7 @@ main = do
         "Bounded run performs exactly its saved turn count"
     let
         authors :: [Word64]
-        authors = [n | message <- runMessages, Just (PersonId.PersonId n) <- [message.author]]
+        authors = [n | message <- runMessages, (PersonId.PersonId n) <- [message.author]]
     assert
         (case authors of [a, b, c] -> a /= b && a == c; _ -> False)
         "Speakers alternate across autonomous and bounded turns"
@@ -459,7 +478,7 @@ main = do
         recoverable :: Conversation
         [recoverable] = filter (\c -> c.id == autoId) recoveryRows
     run (Conversation.setAutonomy autoId recoverable.revision True 60)
-    lostId <- run (Chat.requestTurn autoId (recoverable.revision + 1) personId "")
+    lostId <- run (Chat.requestTurn autoId (recoverable.revision + 1) personId)
     run (Generation.claimGeneration lostId 1)
     mustFail (run (Chat.expireGeneration lostId))
     threadDelay 1200000
@@ -503,16 +522,13 @@ main = do
                 allMemories
     run (Memory.retireMemory personId retiredMemory.id)
     forM_ [0 .. 7] $ \n -> do
-        queued <-
-            run
-                ( Chat.requestTurn
-                    promptId
-                    (Revision.Revision (2 * n))
-                    personId
-                    ( MessageContent.MessageContent
-                        ("Older question " <> T.pack (show n) <> T.replicate 1000 "é")
-                    )
+        run
+            ( Chat.sendMessage promptId
+                ( MessageContent.MessageContent
+                    ("Older question " <> T.pack (show n) <> T.replicate 1000 "é")
                 )
+            )
+        queued <- run (Chat.requestTurn promptId (Revision.Revision (2 * n)) personId)
         run (Generation.claimGeneration queued 180)
         run
             ( Chat.finishGeneration
@@ -526,6 +542,7 @@ main = do
                 ""
             )
     Just promptPerson <- run (Person.loadPersonPage personId)
+    promptProfile <- requireAIProfile promptPerson.person
     promptRows <- run Conversation.getConversations
     let
         promptConversation :: Conversation
@@ -546,7 +563,7 @@ main = do
                 promptMemories
             )
     let
-        context :: T.Text
+        context :: Text
         context = Prompt.context prompt
     assert
         (BS.length (Text.encodeUtf8 context) <= 24000)
@@ -593,13 +610,13 @@ main = do
             ( Person.updatePersonIdentity
                 personId
                 oversizedPerson.person.revision
-                promptPerson.person.identity
-                promptPerson.person.aspirations
+                promptProfile.identity
+                promptProfile.aspirations
             )
     cancellationId <-
         run (Conversation.createConversation "Worker cancellation integration" personId)
-    cancelledTurn <-
-        run (Chat.requestTurn cancellationId 0 personId "Please stop this turn.")
+    run (Chat.sendMessage cancellationId "Please stop this turn.")
+    cancelledTurn <- run (Chat.requestTurn cancellationId 0 personId)
     finishedModel <- newIORef False
     let
         stoppedModel :: Prompt.Prompt -> IO OpenAI.Outcome
@@ -621,6 +638,73 @@ main = do
     assert
         (length cancellationMessages == 1 && null cancellationNotes)
         "Cancelled model output creates no message or note"
+    putStrLn "Checking human identity and independent posting"
+    human <- run LocalAccount.getCurrentPerson
+    sameHuman <- run LocalAccount.getCurrentPerson
+    Just humanProfile <- run (Person.loadPersonPage human)
+    assert (human == sameHuman) "Local account resolves a stable person"
+    assert (case humanProfile.person.kind of Person.Human -> True; _ -> False)
+        "Local identity is human-controlled"
+    mustFail
+        (run (Person.updatePersonIdentity human humanProfile.person.revision
+            "Must not turn a human into an AI" "Not a human field"))
+    mustFail (run (Goal.createGoal human "AI-only goal"))
+    mustFail (run (Memory.createMemory human "AI-only recollection" ""))
+    Just unchangedHuman <- run (Person.loadPersonPage human)
+    humanGoals <- run (Goal.getGoals human)
+    humanMemories <- run (Memory.getMemories human)
+    assert
+        (profileFields unchangedHuman.person == Nothing
+            && unchangedHuman.person.revision == humanProfile.person.revision
+            && null humanGoals && null humanMemories)
+        "Humans cannot acquire AI profiles, goals, or memories"
+    humanConversation <- run (Conversation.createConversation "Human participation" personId)
+    Just humanConversationState <- run (Conversation.getConversation humanConversation)
+    assert
+        (isLeft (Prompt.buildPrompt humanProfile.person [humanProfile.person]
+            humanConversationState [] [] []))
+        "Prompt assembly rejects a human generation target"
+    beforeHuman <- run (Generation.getGenerationSummaries humanConversation)
+    run (Chat.sendMessage humanConversation "A standalone human message")
+    afterHuman <- run (Generation.getGenerationSummaries humanConversation)
+    [humanMessage] <- run (Chat.getMessages humanConversation)
+    assert (humanMessage.author == human && null beforeHuman && null afterHuman)
+        "Posting records an explicit human author without requesting generation"
+    mustFail (run (Chat.sendMessage humanConversation ""))
+    mustFail (run (Chat.sendMessage (ConversationId.ConversationId 999999) "Missing"))
+    mustFail (run (Chat.requestTurn humanConversation 0 human))
+    outsider <- run (Person.createNewPerson "Not a member")
+    mustFail (run (Chat.requestTurn humanConversation 0 outsider))
+    queuedHuman <- run (Chat.requestTurn humanConversation 0 personId)
+    let
+        concurrentHuman :: Prompt.Prompt -> IO OpenAI.Outcome
+        concurrentHuman prompt = do
+            assert (T.isInfixOf "You (human)" (Prompt.context prompt))
+                "Prompt roster distinguishes the human participant"
+            assert (T.isInfixOf "You: A standalone human message" (Prompt.context prompt))
+                "Prompt preserves human authorship"
+            run (Chat.sendMessage humanConversation "Posted while the AI was thinking")
+            assert (not (T.isInfixOf "Posted while the AI was thinking" (Prompt.context prompt)))
+                "An in-flight reply keeps the context it actually saw"
+            pure (OpenAI.Outcome "AI response" "" "" Nothing "")
+    Worker.runCycle database (const (object [])) concurrentHuman
+    humanHistory <- run (Chat.getMessages humanConversation)
+    assert (map (\message -> message.author) humanHistory == [human, human, personId])
+        "Human posting during generation preserves both messages and AI completion"
+    Just humanSnapshot <- run (Generation.getGenerationPrompt humanConversation queuedHuman)
+    let PromptSnapshot.PromptSnapshot snapshotText = humanSnapshot
+    assert (not (T.isInfixOf "Posted while the AI was thinking" snapshotText))
+        "Saved prompt records the actual generation boundary"
+    humanOnly <- run (Conversation.createConversation "Human-only conversation" human)
+    run (Chat.sendMessage humanOnly "No AI needed")
+    run (Conversation.setRunLength humanOnly 0 2)
+    Worker.runCycle database (const (object []))
+        (\_ -> ioError (userError "A human-only conversation must never call a model"))
+    humanOnlyGenerations <- run (Generation.getGenerationSummaries humanOnly)
+    Just humanOnlyState <- run (Conversation.getConversation humanOnly)
+    assert (null humanOnlyGenerations && humanOnlyState.remainingTurns == 0)
+        "Scheduler safely stops when there are no AI participants"
+    checkConversationRefresh database humanConversation
     putStrLn "Checking development fixtures do not reset a running session"
     let
         seed :: IO ()
@@ -637,8 +721,10 @@ main = do
         [ada] = filter (\p -> p.name == "Ada") seededPeople
         sam :: Person
         [sam] = filter (\p -> p.name == "Sam") seededPeople
+    adaProfile <- requireAIProfile ada
+    samProfile <- requireAIProfile sam
     assert
-        (not (T.null ada.identity) && not (T.null sam.identity))
+        (not (T.null adaProfile.identity) && not (T.null samProfile.identity))
         "Fixture AIs have usable identities"
     adaGoals <- run (Goal.getGoals ada.id)
     adaMemories <- run (Memory.getMemories ada.id)
@@ -651,7 +737,7 @@ main = do
         [starter] = filter (\c -> c.title == "Long-running conversation") seededConversations
     starterParticipants <- run (Conversation.getParticipants starter.id)
     assert
-        ( length starterParticipants == 2
+        ( length starterParticipants == 3
             && not starter.autonomous
             && starter.remainingTurns == 0
         )
@@ -662,12 +748,13 @@ main = do
                 ada.id
                 ada.revision
                 "Identity changed during this session."
-                ada.aspirations
+                adaProfile.aspirations
             )
     seed
     Just preservedAda <- run (Person.loadPersonPage ada.id)
+    preservedProfile <- requireAIProfile preservedAda.person
     assert
-        (preservedAda.person.identity == "Identity changed during this session.")
+        (preservedProfile.identity == "Identity changed during this session.")
         "Reseeding must preserve accumulated edits"
     reseededPeople <- run Person.getAllPersons
     reseededConversations <- run Conversation.getConversations
@@ -681,8 +768,8 @@ main = do
             ( Person.updatePersonIdentity
                 ada.id
                 editedAda.person.revision
-                ada.identity
-                ada.aspirations
+                adaProfile.identity
+                adaProfile.aspirations
             )
     putStrLn
         "PASS: lifecycle, prompt selection, active cancellation, and \

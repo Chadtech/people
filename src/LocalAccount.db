@@ -1,0 +1,57 @@
+database module LocalAccount exposing
+    ( accounts
+    , currentPerson
+    , endpoint getCurrentPerson
+    )
+
+import AccountId exposing (AccountId(..))
+import Cookies exposing (Cookies)
+import Person
+import PersonId exposing (PersonId)
+import Rows as R
+import Security
+import Table exposing (Table)
+
+
+-- The local MVP has one server-owned account. Remote authentication will
+-- resolve an account from the session here, never from a submitted author ID.
+accounts : Table Security.Unrestricted { id : AccountId, personId : PersonId }
+accounts :=
+    Table.table
+        { primary = .id
+        , security = Security.unrestricted
+        , indexes = []
+        , constraints = []
+        }
+
+
+currentPerson : Cookies -> Transaction PersonId
+currentPerson _ =
+    let
+        existing : Maybe PersonId
+        existing :=
+            Table.access accounts Security.Unrestricted
+                |> R.filter (\row -> row.id == AccountId 1)
+                |> R.map .personId
+                |> R.selectMaybe
+    in
+    case existing of
+        Just personId ->
+            Transaction.succeed personId
+
+        Nothing ->
+            let
+                personId : PersonId
+                personId :=
+                    Person.createHuman "You"
+
+                () :=
+                    Table.insert accounts Security.Unrestricted
+                        { id = AccountId 1, personId = personId }
+            in
+            Transaction.succeed personId
+
+
+getCurrentPerson : Cookies -> Transaction PersonId
+getCurrentPerson cookies =
+    currentPerson cookies

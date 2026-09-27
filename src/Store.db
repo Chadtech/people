@@ -1,4 +1,4 @@
-database module Store exposing (ensure, require, update, updateString)
+database module Store exposing (ensure, require, update)
 
 import Rows as R
 import Security
@@ -61,20 +61,3 @@ ensure table predicate =
 
     else
         Transaction.fail
-
-
-{-| Empty endpoint strings can be bound as SQL NULL by Acadia 0.3.0.
-Keep the branch outside Table.update so the empty case contains a literal.
--}
-updateString :
-    Table Security.Unrestricted row
-    -> (row -> Bool)
-    -> (String -> row -> row)
-    -> String
-    -> Transaction ()
-updateString table predicate change value =
-    if value == "" then
-        Table.update table Security.Unrestricted predicate (change "")
-
-    else
-        Table.update table Security.Unrestricted predicate (change value)

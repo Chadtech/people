@@ -94,7 +94,9 @@ inset; do not cap the whole page to a centered form width.
 Pages that need a full viewport minimum height apply `S.minHFullViewport`
 explicitly. Reuse the helper rather than styling page children from `Main`.
 Use Tailwind-inspired names for reusable layout utilities: `S.flexWrap` maps
-to `flex-wrap: wrap`. Keep repeated CSS primitives in `Style`.
+to `flex-wrap: wrap`. Keep repeated CSS primitives in `Style`. Reuse
+`S.wrapAnywhere` and `S.whitespacePreWrap` for text wrapping, `S.listNone`
+for unmarked lists, and `S.border0` for a zero-border reset.
 Available responsive helpers are `md` at 768px and `lg` at 1156px.
 
 Guidelines:
@@ -156,7 +158,11 @@ initialization; the backend remembers whether the data has already been filled. 
 After creating a person, show a success message with a `Route.href` link to the
 saved person so the user can choose when to open it.
 
-Person goals and memories share the existing panel surface. A borderless native
+Person pages follow the human/AI distinction in the data model. Human pages
+show common identity details only; AI pages own the Identity, Aspirations,
+goals, and memory editors. Do not render disabled or empty AI fields for humans.
+
+AI goals and memories share the existing panel surface. A borderless native
 fieldset disables related controls while saving. Keep human-entered records and
 AI reflections visibly attributed; retired memories remain inspectable with an
 explicit status. Clear only the successfully submitted draft and preserve other
@@ -174,6 +180,13 @@ AllConversations. Its lists are required values; an empty list means a successfu
 empty result. Main owns initial loading and failure states. All route loads share one loading
 view and one failure view, without retry controls. Loading state retains the
 resource ID, or the pending `Maybe Route` during development-data initialization.
+
+Conversation's Person menu defaults to **Myself**, the current local human.
+Myself shows the message composer and Send; an AI selection shows the reply
+request action. Switching people preserves an unsent human draft. Sending a
+human message does not itself request a reply and remains available during an
+AI turn. Automatic runs select only AI participants. The transcript labels the
+local human as You; human identity never becomes an automated speaker.
 
 Conversation speaker validation appears beside the composer actions and names the
 Person menu needed to recover. Associate feedback with that selector, announce
@@ -238,6 +251,9 @@ experiment into an established preference or expand a small task into a redesign
 
 | Date | Status | Decision and reason |
 | --- | --- | --- |
+| 2026-09-26 | Established | Conversation pages use shared `Style` utilities for border resets, list markers, and text wrapping instead of inline CSS primitives. |
+| 2026-09-26 | Established | Human profiles have only common person details. AI-only profile fields and editors belong exclusively to the AI variant, rather than using empty fields for humans. |
+| 2026-09-26 | Established | Add Myself as the default conversation speaker. Separate human Send from AI reply requests, retain drafts across selection changes, and allow human posting during generation. |
 | 2026-09-26 | Established | Show missing or ineligible reply-person feedback beside Send, with an accessible alert and selector association; preserve the draft and clear feedback on selection changes. Errors below history were easy to miss. |
 | 2026-09-13 | Established | Main shares loading and failure views and removes route retry controls. Development-data loading retains the pending route and follows the latest navigation after initialization. |
 | 2026-09-13 | Established | Main loads AllConversations flags before initialization, keeping required lists in the page model and initial loading and retry in the route. |

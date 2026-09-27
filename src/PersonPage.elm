@@ -36,7 +36,12 @@ import View.TextField as TextField
 import View.Textarea
 
 
-type alias Model =
+type Model
+    = HumanPage Shared.Model Person
+    | AIPage AIModel
+
+
+type alias AIModel =
     { shared : Shared.Model
     , person : Person
     , identity : String
@@ -79,36 +84,66 @@ type Mutation
 
 init : Shared.Model -> PersonPageFlags -> ( Model, Eff Msg )
 init sharedModel flags =
-    ( { shared = sharedModel
-      , person = flags.person
-      , identity = flags.person.identity
-      , aspirations = flags.person.aspirations
-      , saving = False
-      , status = ""
-      , goals = Nothing
-      , memories = Nothing
-      , goalDraft = ""
-      , memoryDraft = ""
-      , keywords = ""
-      , pending = False
-      , mindStatus = ""
-      }
-    , refresh flags.person.id
-    )
+    case flags.person.kind of
+        Person.Human ->
+            ( HumanPage sharedModel flags.person, E.none )
+
+        Person.AI profile ->
+            ( AIPage
+                { shared = sharedModel
+                , person = flags.person
+                , identity = profile.identity
+                , aspirations = profile.aspirations
+                , saving = False
+                , status = ""
+                , goals = Nothing
+                , memories = Nothing
+                , goalDraft = ""
+                , memoryDraft = ""
+                , keywords = ""
+                , pending = False
+                , mindStatus = ""
+                }
+            , refresh flags.person.id
+            )
 
 
 shared : Model -> Shared.Model
 shared model =
-    model.shared
+    case model of
+        HumanPage sharedModel _ ->
+            sharedModel
+
+        AIPage editor ->
+            editor.shared
 
 
 setShared : Shared.Model -> Model -> Model
 setShared sharedModel model =
-    { model | shared = sharedModel }
+    case model of
+        HumanPage _ person ->
+            HumanPage sharedModel person
+
+        AIPage editor ->
+            AIPage { editor | shared = sharedModel }
 
 
 update : Msg -> Model -> ( Model, Eff Msg )
 update msg model =
+    case model of
+        HumanPage _ _ ->
+            ( model, E.none )
+
+        AIPage editor ->
+            let
+                ( next, effect ) =
+                    updateAI msg editor
+            in
+            ( AIPage next, effect )
+
+
+updateAI : Msg -> AIModel -> ( AIModel, Eff Msg )
+updateAI msg model =
     case msg of
         IdentityInputChanged value ->
             ( { model | identity = value }, E.none )
@@ -273,13 +308,49 @@ update msg model =
 
 document : Model -> Document Msg
 document model =
-    { title = model.person.name
-    , body = [ view model ]
-    }
+    case model of
+        HumanPage _ person ->
+            { title = person.name
+            , body = [ viewPerson person [] ]
+            }
+
+        AIPage editor ->
+            { title = editor.person.name
+            , body = [ view editor ]
+            }
 
 
-view : Model -> Html Msg
+view : AIModel -> Html Msg
 view model =
+    let
+        saveLabel : String
+        saveLabel =
+            if model.saving then
+                "Saving…"
+
+            else
+                "Save identity"
+    in
+    viewPerson model.person
+        [ identityField "Identity"
+            "What matters to this person and how they communicate."
+            model.identity
+            IdentityInputChanged
+        , identityField "Aspirations"
+            "What this person wants to explore or accomplish. These guide future goals."
+            model.aspirations
+            AspirationsInputChanged
+        , View.Button.primary
+            saveLabel
+            SaveButtonClicked
+            |> View.Button.toHtml
+        , H.p [ A.attribute "role" "status" ] [ H.text model.status ]
+        , mindView model
+        ]
+
+
+viewPerson : Person -> List (Html Msg) -> Html Msg
+viewPerson person controls =
     H.div
         [ A.css
             [ S.minHFullViewport
@@ -302,38 +373,21 @@ view model =
                 , Css.property "overflow-wrap" "anywhere"
                 ]
             ]
-            [ H.h1
+            ([ H.h1
                 [ A.css
                     [ S.textGray3 ]
                 ]
-                [ H.text model.person.name ]
-            , H.dl
+                [ H.text person.name ]
+             , H.dl
                 [ A.css
                     [ S.col, S.g2 ]
                 ]
-                [ detail "Name" model.person.name
-                , detail "ID" (PersonIdUtil.toString model.person.id)
+                [ detail "Name" person.name
+                , detail "ID" (PersonIdUtil.toString person.id)
                 ]
-            , identityField "Identity"
-                "What matters to this person and how they communicate."
-                model.identity
-                IdentityInputChanged
-            , identityField "Aspirations"
-                "What this person wants to explore or accomplish. These guide future goals."
-                model.aspirations
-                AspirationsInputChanged
-            , View.Button.primary
-                (if model.saving then
-                    "Saving…"
-
-                 else
-                    "Save identity"
-                )
-                SaveButtonClicked
-                |> View.Button.toHtml
-            , H.p [ A.attribute "role" "status" ] [ H.text model.status ]
-            , mindView model
-            ]
+             ]
+                ++ controls
+            )
         ]
 
 
@@ -363,7 +417,7 @@ refresh personId =
         ]
 
 
-mutate : Mutation -> Transaction () -> Model -> ( Model, Eff Msg )
+mutate : Mutation -> Transaction () -> AIModel -> ( AIModel, Eff Msg )
 mutate mutation transaction model =
     if model.pending then
         ( model, E.none )
@@ -374,7 +428,7 @@ mutate mutation transaction model =
         )
 
 
-mindView : Model -> Html Msg
+mindView : AIModel -> Html Msg
 mindView model =
     H.fieldset
         [ A.disabled model.pending
@@ -445,7 +499,7 @@ rows loading empty render values =
         )
 
 
-goalView : Model -> Goal.Goal -> Html Msg
+goalView : AIModel -> Goal.Goal -> Html Msg
 goalView model goal =
     H.div [ A.css [ S.col, S.g2 ] ]
         [ H.p [] [ H.text (GoalDescriptionUtil.toString goal.description) ]
@@ -462,7 +516,7 @@ goalView model goal =
         ]
 
 
-memoryView : Model -> Memory.Memory -> Html Msg
+memoryView : AIModel -> Memory.Memory -> Html Msg
 memoryView model memory =
     H.div [ A.css [ S.col, S.g2 ] ]
         [ H.p [] [ H.text (MemoryContentUtil.toString memory.content) ]
@@ -514,7 +568,7 @@ field label input =
     H.label [ A.css [ S.col, S.g2 ] ] [ H.span [] [ H.text label ], input ]
 
 
-button : Model -> String -> Msg -> Html Msg
+button : AIModel -> String -> Msg -> Html Msg
 button model label event =
     View.Button.secondary label event
         |> View.Button.toHtml

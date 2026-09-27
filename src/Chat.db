@@ -10,6 +10,7 @@ database module Chat exposing
     , endpoint getMessages
     , endpoint getNoteRevisions
     , endpoint requestTurn
+    , endpoint sendMessage
     , endpoint stopConversation
     )
 
@@ -23,6 +24,7 @@ import Goal
 import GoalDescription exposing (GoalDescription(..))
 import GoalId exposing (GoalId)
 import IntervalSeconds exposing (IntervalSeconds(..))
+import LocalAccount
 import Memory
 import MemoryContent exposing (MemoryContent(..))
 import MemoryKeywords exposing (MemoryKeywords(..))
@@ -46,7 +48,7 @@ import TurnCount exposing (TurnCount(..))
 type alias Message =
     { id : MessageId
     , conversationId : ConversationId
-    , author : Maybe PersonId
+    , author : PersonId
     , content : MessageContent
     }
 
@@ -105,6 +107,7 @@ getMessages _ conversationId =
 
 type ConversationPageFlag
     = ConversationFlag Conversation
+    | CurrentPersonFlag PersonId
     | PersonFlag Person
     | MessageFlag Message
     | ParticipantFlag PersonId
@@ -122,13 +125,23 @@ getConversationDetailsFlags :
     Cookies
     -> ConversationId
     -> Transaction (Rows ConversationPageFlag)
-getConversationDetailsFlags _ conversationId =
+getConversationDetailsFlags cookies conversationId =
+    let
+        currentPerson : PersonId
+        currentPerson :=
+            LocalAccount.currentPerson cookies
+    in
     conversationDetailsRows
         |> selectPageFlags conversationId
 
 
 getConversationPageFlags : Cookies -> ConversationId -> Transaction (Rows ConversationPageFlag)
-getConversationPageFlags _ conversationId =
+getConversationPageFlags cookies conversationId =
+    let
+        currentPerson : PersonId
+        currentPerson :=
+            LocalAccount.currentPerson cookies
+    in
     combinePageRows conversationDetailsRows
         (Table.access Conversation.conversations Security.Unrestricted
             |> R.map
@@ -176,7 +189,17 @@ conversationDetailsRows =
                         )
                 )
     in
-    combinePageRows withParticipants
+    combinePageRows
+        (combinePageRows withParticipants
+            (Table.access LocalAccount.accounts Security.Unrestricted
+                |> R.map
+                    (\row ->
+                        ScopedPageFlag (PersonId.toUInt64 row.personId)
+                            Nothing
+                            (CurrentPersonFlag row.personId)
+                    )
+            )
+        )
         (Table.access Generation.generations Security.Unrestricted
             |> R.map
                 (\row ->
@@ -226,14 +249,46 @@ unionPageFlag row =
             flag
 
 
+-- Posting never claims an AI turn or requires an idle conversation.
+-- Resolve the author on the server; the client cannot choose whom to impersonate.
+
+
+sendMessage : Cookies -> ConversationId -> MessageContent -> Transaction ()
+sendMessage cookies conversationId (MessageContent content) =
+    if content == "" then
+        Transaction.fail
+
+    else
+        let
+            () :=
+                Store.ensure Conversation.conversations (\row -> row.id == conversationId)
+
+            author : PersonId
+            author :=
+                LocalAccount.currentPerson cookies
+
+            () :=
+                Conversation.addParticipant cookies conversationId author
+
+            id : MessageId
+            id :=
+                Seq.next messageIds
+        in
+        Table.insert messages Security.Unrestricted
+            { id = id
+            , conversationId = conversationId
+            , author = author
+            , content = MessageContent content
+            }
+
+
 requestTurn :
     Cookies
     -> ConversationId
     -> Revision
     -> PersonId
-    -> MessageContent
     -> Transaction GenerationId
-requestTurn _ conversationId expectedRevision speaker (MessageContent content) =
+requestTurn _ conversationId expectedRevision speaker =
     let
         now : Posix
         now :=
@@ -242,6 +297,9 @@ requestTurn _ conversationId expectedRevision speaker (MessageContent content) =
         id : GenerationId
         id :=
             Seq.next Generation.generationIds
+
+        () :=
+            Person.requireAI speaker
 
         () :=
             Store.ensure Conversation.participants
@@ -258,24 +316,6 @@ requestTurn _ conversationId expectedRevision speaker (MessageContent content) =
                         , remainingTurns = TurnCount.decrementTurns row.remainingTurns
                     }
                 )
-
-        () :=
-            if content == "" then
-                Transaction.succeed ()
-
-            else
-                let
-                    messageId : MessageId
-                    messageId :=
-                        Seq.next messageIds
-                in
-                Table.insert messages
-                    Security.Unrestricted
-                    { id = messageId
-                    , conversationId = conversationId
-                    , author = Nothing
-                    , content = MessageContent content
-                    }
 
         () :=
             Table.insert Generation.generations
@@ -354,7 +394,7 @@ finishGeneration _ id content newGoal memory completedGoal (Note note) =
                 Security.Unrestricted
                 { id = messageId
                 , conversationId = generation.conversationId
-                , author = Just generation.speaker
+                , author = generation.speaker
                 , content = content
                 }
 

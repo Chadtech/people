@@ -5,12 +5,13 @@ module Main (main) where
 import People.DomainInstances ()
 
 import Control.Monad (forM_, unless)
-import Data.Aeson (Value, encode, object, (.=))
+import Data.Aeson (Value, encode, toJSON, object, (.=))
 import qualified Data.ByteString.Lazy as Lazy
 import Data.Either (isLeft)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as Text
 import qualified GoalId
+import qualified People.Prompt as Prompt
 import qualified People.OpenAI as OpenAI
 import qualified People.Environment as Environment
 
@@ -52,6 +53,32 @@ envelope status result =
 
 main :: IO ()
 main = do
+    assert
+        ( toJSON
+            (Prompt.PromptSelection
+                [Prompt.SelectionBlock "identity" "person" "Example" 27]
+                [Prompt.SelectionBlock "memory:1" "retired" "Old" 26]
+                24000
+                6000)
+            == object
+                [ "included" .= [object
+                    [ "source" .= ("identity" :: T.Text)
+                    , "reason" .= ("person" :: T.Text)
+                    , "text" .= ("Example" :: T.Text)
+                    , "bytes" .= (27 :: Int)
+                    ]]
+                , "omitted" .= [object
+                    [ "source" .= ("memory:1" :: T.Text)
+                    , "reason" .= ("retired" :: T.Text)
+                    , "text" .= ("Old" :: T.Text)
+                    , "bytes" .= (26 :: Int)
+                    ]]
+                , "budget_unit" .= ("UTF-8 bytes, not tokenizer counts" :: T.Text)
+                , "context_budget" .= (24000 :: Int)
+                , "memory_allowance" .= (6000 :: Int)
+                ]
+        )
+        "Typed prompt selection changed the saved snapshot format"
     assert
         (Environment.parseFile "# comment\r\nexport KEY = 'value # literal'\r\nMODEL=example # comment\nEMPTY=\nLITERAL=$(echo value)\nQUOTED=\"a=b\"\n"
             == Right [("KEY", "value # literal"), ("MODEL", "example"), ("EMPTY", ""), ("LITERAL", "$(echo value)"), ("QUOTED", "a=b")])

@@ -18,7 +18,6 @@ import Chat exposing (ConversationPageFlag, Message)
 import Conversation exposing (Conversation)
 import ConversationId exposing (ConversationId)
 import ConversationTitle.Util as ConversationTitleUtil
-import Css
 import Dict exposing (Dict)
 import Document exposing (Document)
 import Effect as E exposing (Eff)
@@ -61,6 +60,7 @@ import View.Textarea as Textarea
 type alias Model =
     { shared : Shared.Model
     , conversation : Conversation
+    , currentPerson : PersonId
     , people : List Person
     , messages : List Chat.Message
     , participants : List PersonId
@@ -71,10 +71,29 @@ type alias Model =
     , generations : List Generation.GenerationSummary
     , draft : String
     , speaker : String
-    , speakerError : Maybe String
+    , speakerError : Maybe SpeakerError
     , pending : Bool
-    , error : Maybe String
+    , error : Maybe Error
     }
+
+
+type Error
+    = ConversationRefreshFailed
+    | ConversationUnavailable
+    | PromptNotFound
+    | PromptLoadFailed
+    | NoteHistoryLoadFailed
+    | ParticipantSelectionRequired
+    | MutationFailed
+    | MessageSendFailed
+    | TurnStartFailed
+
+
+type SpeakerError
+    = AISpeakerRequired
+    | SpeakerNotParticipant
+    | SpeakerSelectionRequired
+    | MyselfRequired
 
 
 type Msg
@@ -94,6 +113,7 @@ type Msg
     | AddParticipantButtonClicked
     | MutationResponseReceived (Maybe ())
     | TurnResponseReceived (Maybe GenerationId)
+    | MessageResponseReceived String (Maybe ())
 
 
 
@@ -104,6 +124,7 @@ type Msg
 
 type alias Flags =
     { conversation : Conversation
+    , currentPerson : PersonId
     , people : List Person
     , messages : List Message
     , participants : List PersonId
@@ -113,6 +134,7 @@ type alias Flags =
 
 type alias PageFlags =
     { conversation : Maybe Conversation
+    , currentPerson : Maybe PersonId
     , people : List Person
     , messages : List Message
     , participants : List PersonId
@@ -124,6 +146,7 @@ init : Shared.Model -> Flags -> Model
 init sharedModel flags =
     { shared = sharedModel
     , conversation = flags.conversation
+    , currentPerson = flags.currentPerson
     , people = flags.people
     , messages = flags.messages
     , participants = flags.participants
@@ -133,7 +156,7 @@ init sharedModel flags =
     , prompts = Dict.empty
     , loadingPrompts = Set.empty
     , draft = ""
-    , speaker = ""
+    , speaker = PersonIdUtil.toString flags.currentPerson
     , speakerError = Nothing
     , pending = False
     , error = Nothing
@@ -145,6 +168,9 @@ addPageFlag flag flags =
     case flag of
         Chat.ConversationFlag conversation ->
             { flags | conversation = Just conversation }
+
+        Chat.CurrentPersonFlag personId ->
+            { flags | currentPerson = Just personId }
 
         Chat.PersonFlag person ->
             { flags | people = person :: flags.people }
@@ -199,6 +225,7 @@ flagsFromResponse result =
                 flags =
                     List.foldr addPageFlag
                         { conversation = Nothing
+                        , currentPerson = Nothing
                         , people = []
                         , messages = []
                         , participants = []
@@ -206,18 +233,19 @@ flagsFromResponse result =
                         }
                         rows
             in
-            case flags.conversation of
-                Nothing ->
-                    Remote.NotFound
-
-                Just conversation ->
+            case ( flags.conversation, flags.currentPerson ) of
+                ( Just conversation, Just currentPerson ) ->
                     Remote.Found
                         { conversation = conversation
+                        , currentPerson = currentPerson
                         , people = flags.people
                         , messages = flags.messages
                         , participants = flags.participants
                         , generations = flags.generations
                         }
+
+                _ ->
+                    Remote.NotFound
 
 
 mutateConversation :
@@ -234,8 +262,75 @@ mutateConversation transaction model =
         )
 
 
-requestTurn : String -> Model -> ( Model, Eff Msg )
-requestTurn content model =
+errorToString : Error -> String
+errorToString error =
+    case error of
+        ConversationRefreshFailed ->
+            "Could not refresh the conversation. Check the connection."
+
+        ConversationUnavailable ->
+            "This conversation is no longer available. Return to All conversations."
+
+        PromptNotFound ->
+            "That prompt was not found."
+
+        PromptLoadFailed ->
+            "Could not load that prompt. Try again."
+
+        NoteHistoryLoadFailed ->
+            "Could not load note history. Try again."
+
+        ParticipantSelectionRequired ->
+            "Choose a person to add."
+
+        MutationFailed ->
+            "Could not apply the change. Refresh and try again."
+
+        MessageSendFailed ->
+            "Could not send your message. Your draft is still here; try again."
+
+        TurnStartFailed ->
+            "Could not start the turn. The conversation may have changed; your draft is still here."
+
+
+speakerErrorToString : SpeakerError -> String
+speakerErrorToString error =
+    case error of
+        AISpeakerRequired ->
+            "Choose an AI person to request a reply."
+
+        SpeakerNotParticipant ->
+            "Add the selected person to the conversation, then try again."
+
+        SpeakerSelectionRequired ->
+            "Choose who should reply from the Person menu above, then try again."
+
+        MyselfRequired ->
+            "Choose Myself to send your message."
+
+
+setError : Error -> Model -> Model
+setError error model =
+    { model | error = Just error }
+
+
+clearError : Model -> Model
+clearError model =
+    { model | error = Nothing }
+
+
+setSpeakerError : SpeakerError -> Model -> Model
+setSpeakerError error model =
+    { model | speakerError = Just error }
+
+
+clearSpeakerError : Model -> Model
+clearSpeakerError model =
+    { model | speakerError = Nothing }
+
+
+requestTurn : Model -> ( Model, Eff Msg )
+requestTurn model =
     let
         selectedSpeaker : Maybe PersonId
         selectedSpeaker =
@@ -250,21 +345,31 @@ requestTurn content model =
             if model.pending || model.conversation.activeGeneration /= Nothing then
                 ( model, E.none )
 
+            else if not (List.any (\p -> p.id == speaker && isAI p) model.people) then
+                model
+                    |> setSpeakerError AISpeakerRequired
+                    |> E.withOut
+
             else if not (List.member speaker model.participants) then
-                ( { model | speakerError = Just "Add the selected person to the conversation, then try again." }, E.none )
+                model
+                    |> setSpeakerError SpeakerNotParticipant
+                    |> E.withOut
 
             else
-                ( { model | pending = True, error = Nothing, speakerError = Nothing }
+                ( { model | pending = True }
+                    |> clearError
+                    |> clearSpeakerError
                 , E.attempt TurnResponseReceived
                     (Chat.requestTurn model.conversation.id
                         model.conversation.revision
                         speaker
-                        (MessageContent.MessageContent content)
                     )
                 )
 
         _ ->
-            ( { model | speakerError = Just "Choose who should reply from the Person menu above, then try again." }, E.none )
+            model
+                |> setSpeakerError SpeakerSelectionRequired
+                |> E.withOut
 
 
 
@@ -286,14 +391,14 @@ update msg model =
         PageFlagsResponseReceived result ->
             case result of
                 Remote.Failed ->
-                    ( { model | error = Just "Could not refresh the conversation. Check the connection." }
-                    , E.none
-                    )
+                    model
+                        |> setError ConversationRefreshFailed
+                        |> E.withOut
 
                 Remote.NotFound ->
-                    ( { model | error = Just "This conversation is no longer available. Return to All conversations." }
-                    , E.none
-                    )
+                    model
+                        |> setError ConversationUnavailable
+                        |> E.withOut
 
                 Remote.Found flags ->
                     ( { model
@@ -348,10 +453,14 @@ update msg model =
                     )
 
                 Remote.NotFound ->
-                    ( { next | error = Just "That prompt was not found." }, E.none )
+                    next
+                        |> setError PromptNotFound
+                        |> E.withOut
 
                 Remote.Failed ->
-                    ( { next | error = Just "Could not load that prompt. Try again." }, E.none )
+                    next
+                        |> setError PromptLoadFailed
+                        |> E.withOut
 
         NoteHistoryClicked ->
             if model.loadingNotes then
@@ -372,13 +481,13 @@ update msg model =
 
                         Nothing ->
                             model.noteHistory
-                , error =
-                    if result == Nothing then
-                        Just "Could not load note history. Try again."
+              }
+                |> (if result == Nothing then
+                        setError NoteHistoryLoadFailed
 
                     else
-                        model.error
-              }
+                        identity
+                   )
             , E.none
             )
 
@@ -386,19 +495,31 @@ update msg model =
             ( { model | draft = value }, E.none )
 
         SpeakerSelectionChanged value ->
-            ( { model | speaker = value, speakerError = Nothing }
-            , E.none
-            )
+            { model | speaker = value }
+                |> clearSpeakerError
+                |> E.withOut
 
         SendButtonClicked ->
-            if String.isEmpty (String.trim model.draft) then
+            if model.pending || String.isEmpty (String.trim model.draft) then
                 ( model, E.none )
 
+            else if model.speaker == PersonIdUtil.toString model.currentPerson then
+                ( { model | pending = True }
+                    |> clearError
+                    |> clearSpeakerError
+                , E.attempt (MessageResponseReceived model.draft)
+                    (Chat.sendMessage model.conversation.id
+                        (MessageContent.MessageContent model.draft)
+                    )
+                )
+
             else
-                requestTurn model.draft model
+                model
+                    |> setSpeakerError MyselfRequired
+                    |> E.withOut
 
         ReplyButtonClicked ->
-            requestTurn "" model
+            requestTurn model
 
         RunButtonClicked ->
             mutateConversation
@@ -430,7 +551,9 @@ update msg model =
         AddParticipantButtonClicked ->
             case PersonIdUtil.fromString model.speaker of
                 Nothing ->
-                    ( { model | error = Just "Choose a person to add." }, E.none )
+                    model
+                        |> setError ParticipantSelectionRequired
+                        |> E.withOut
 
                 Just personId ->
                     mutateConversation (\c -> Conversation.addParticipant c.id personId) model
@@ -438,35 +561,45 @@ update msg model =
         MutationResponseReceived result ->
             ( { model
                 | pending = False
-                , error =
-                    if result == Nothing then
-                        Just "Could not apply the change. Refresh and try again."
+              }
+                |> (if result == Nothing then
+                        setError MutationFailed
 
                     else
-                        Nothing
+                        clearError
+                   )
+            , refresh model.conversation.id
+            )
+
+        MessageResponseReceived submitted result ->
+            ( { model
+                | pending = False
+                , draft =
+                    if result /= Nothing && model.draft == submitted then
+                        ""
+
+                    else
+                        model.draft
               }
+                |> (if result == Nothing then
+                        setError MessageSendFailed
+
+                    else
+                        clearError
+                   )
             , refresh model.conversation.id
             )
 
         TurnResponseReceived result ->
             ( { model
                 | pending = False
-                , draft =
-                    if result == Nothing then
-                        model.draft
-
-                    else
-                        ""
-                , error =
-                    if result == Nothing then
-                        Just
-                            ("Could not start the turn. The conversation may have changed; "
-                                ++ "your draft is still here."
-                            )
-
-                    else
-                        Nothing
               }
+                |> (if result == Nothing then
+                        setError TurnStartFailed
+
+                    else
+                        clearError
+                   )
             , refresh model.conversation.id
             )
 
@@ -498,7 +631,9 @@ view model =
                 ]
                 [ H.h1 [ A.css [ S.textGray3 ] ] [ H.text "Conversation" ]
                 , conversationView model model.conversation
-                , H.p [ A.attribute "role" "status" ] [ H.text (Maybe.withDefault "" model.error) ]
+                , H.p
+                    [ A.attribute "role" "status" ]
+                    [ H.text (Maybe.withDefault "" (Maybe.map errorToString model.error)) ]
                 ]
             ]
         ]
@@ -538,10 +673,7 @@ conversationView model conversation =
                     H.section [ A.css [ S.col, S.g2 ] ]
                         [ H.h3 [ A.css [ S.textGray3 ] ]
                             [ H.text
-                                (Maybe.map (personName model)
-                                    message.author
-                                    |> Maybe.withDefault "You"
-                                )
+                                (personName model message.author)
                             ]
                         , pre (MessageContentUtil.toString message.content)
                         ]
@@ -581,7 +713,7 @@ conversationView model conversation =
                         [ A.value (PersonIdUtil.toString p.id)
                         , A.selected (model.speaker == PersonIdUtil.toString p.id)
                         ]
-                        [ H.text p.name ]
+                        [ H.text (speakerName model p) ]
             in
             H.label [ A.css [ S.col, S.g2 ] ]
                 [ H.text "Person"
@@ -597,7 +729,8 @@ conversationView model conversation =
                         , A.selected (model.speaker == "")
                         ]
                         [ H.text "Choose a person" ]
-                        :: List.map personOption model.people
+                        :: List.map personOption
+                            (List.filter (\p -> p.id == model.currentPerson || isAI p) model.people)
                     )
                 ]
     in
@@ -621,7 +754,7 @@ conversationView model conversation =
         , H.p [ A.attribute "role" "status" ] [ H.text autonomyStatus ]
         , H.fieldset
             [ A.disabled model.pending
-            , A.css [ Css.border (Css.px 0), S.col, S.g2 ]
+            , A.css [ S.border0, S.col, S.g2 ]
             ]
             [ personSelector
             , Button.secondary "Add participant" AddParticipantButtonClicked
@@ -644,8 +777,39 @@ composerView model conversation =
                 Nothing ->
                     H.text ""
 
-                Just message ->
-                    H.p [ A.css [ S.textRed1 ] ] [ H.text message ]
+                Just error ->
+                    H.p
+                        [ A.css [ S.textRed1 ] ]
+                        [ H.text (speakerErrorToString error) ]
+
+        speakingAsMyself : Bool
+        speakingAsMyself =
+            model.speaker == PersonIdUtil.toString model.currentPerson
+
+        messageInput : Html Msg
+        messageInput =
+            if speakingAsMyself then
+                H.div [ A.css [ S.col, S.g2 ] ]
+                    [ H.label [ A.css [ S.col, S.g2 ] ]
+                        [ H.text "Message"
+                        , Textarea.simple model.draft DraftInputChanged |> Textarea.toHtml
+                        ]
+                    , Button.primary "Send" SendButtonClicked |> Button.toHtml
+                    ]
+
+            else
+                H.text ""
+
+        selectedReply : Html Msg
+        selectedReply =
+            if speakingAsMyself then
+                H.text ""
+
+            else
+                Button.primary
+                    "Let selected person reply"
+                    ReplyButtonClicked
+                    |> Button.toHtml
 
         replyControls : Html Msg
         replyControls =
@@ -661,12 +825,14 @@ composerView model conversation =
                             |> Button.toHtml
             in
             if conversation.activeGeneration == Nothing then
-                H.div [ A.css [ S.row, S.g2, S.flexWrap ] ]
-                    [ Button.primary "Send" SendButtonClicked
-                        |> Button.toHtml
-                    , Button.secondary "Let selected person reply"
-                        ReplyButtonClicked
-                        |> Button.toHtml
+                H.div
+                    [ A.css
+                        [ S.row
+                        , S.g2
+                        , S.flexWrap
+                        ]
+                    ]
+                    [ selectedReply
                     , Button.secondary "Run 6 turns" RunButtonClicked
                         |> Button.toHtml
                     , autonomyButton
@@ -680,12 +846,9 @@ composerView model conversation =
     in
     H.fieldset
         [ A.disabled model.pending
-        , A.css [ Css.border (Css.px 0), S.col, S.g2 ]
+        , A.css [ S.border0, S.col, S.g2 ]
         ]
-        [ H.label [ A.css [ S.col, S.g2 ] ]
-            [ H.text "Message"
-            , Textarea.simple model.draft DraftInputChanged |> Textarea.toHtml
-            ]
+        [ messageInput
         , H.div
             [ A.id "speaker-feedback"
             , A.attribute "role" "alert"
@@ -748,7 +911,7 @@ noteHistoryView model =
         [ H.h2 [ A.css [ S.textGray3 ] ] [ H.text "Note history" ]
         , H.fieldset
             [ A.disabled model.loadingNotes
-            , A.css [ Css.border (Css.px 0), S.minW0 ]
+            , A.css [ S.border0, S.minW0 ]
             ]
             [ Button.secondary loadLabel NoteHistoryClicked |> Button.toHtml ]
         , history
@@ -764,12 +927,21 @@ personName model id =
         |> Maybe.withDefault "Unknown person"
 
 
+speakerName : Model -> Person -> String
+speakerName model person =
+    if person.id == model.currentPerson then
+        "Myself"
+
+    else
+        person.name
+
+
 pre : String -> Html msg
 pre content =
     H.pre
         [ A.css
-            [ Css.whiteSpace Css.preWrap
-            , Css.property "overflow-wrap" "anywhere"
+            [ S.whitespacePreWrap
+            , S.wrapAnywhere
             , S.minW0
             ]
         ]
@@ -825,7 +997,7 @@ generationView model generation =
                     (GenerationIdUtil.toString generation.id)
                     model.loadingPrompts
                 )
-            , A.css [ Css.border (Css.px 0), S.minW0 ]
+            , A.css [ S.border0, S.minW0 ]
             ]
             [ Button.secondary "Load / refresh prompt"
                 (PromptInspectionClicked generation.id)
@@ -844,3 +1016,13 @@ generationView model generation =
 subscriptions : Sub Msg
 subscriptions =
     Time.every 1500 (\_ -> TickReceived)
+
+
+isAI : Person -> Bool
+isAI person =
+    case person.kind of
+        Person.AI _ ->
+            True
+
+        Person.Human ->
+            False

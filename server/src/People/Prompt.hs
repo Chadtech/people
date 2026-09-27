@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module People.Prompt (Prompt (..), buildPrompt) where
+module People.Prompt (Prompt (..), PromptSelection (..), SelectionBlock (..), buildPrompt) where
 
 import qualified GoalDescription
 import qualified MemoryContent
@@ -10,19 +10,22 @@ import qualified MessageContent
 import qualified Note
 import People.DomainInstances ()
 
+import AIProfile (AIProfile)
 import qualified Chat
 import Conversation (Conversation)
-import Data.Aeson (Value, object, (.=))
+import Data.Aeson (ToJSON (toJSON), object, (.=))
 import qualified Data.ByteString as BS
 import Data.List (sortOn)
 import Data.Ord (Down (..))
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as Text
+import Goal (Goal)
 import qualified Goal
-import qualified Memory
+import Memory (Memory)
 import qualified Origin
 import Person (Person)
+import qualified Person
 import qualified PersonId
 
 
@@ -31,8 +34,47 @@ data Prompt
     = Prompt
     { instructions :: Text
     , context :: Text
-    , selection :: Value
+    , selection :: PromptSelection
     }
+
+
+data PromptSelection
+    = PromptSelection
+    { includedBlocks :: [SelectionBlock]
+    , omittedBlocks :: [SelectionBlock]
+    , contextBudget :: Int
+    , memoryByteAllowance :: Int
+    }
+
+
+instance ToJSON PromptSelection where
+    toJSON details =
+        object
+            [ "included" .= details.includedBlocks
+            , "omitted" .= details.omittedBlocks
+            , "budget_unit" .= ("UTF-8 bytes, not tokenizer counts" :: Text)
+            , "context_budget" .= details.contextBudget
+            , "memory_allowance" .= details.memoryByteAllowance
+            ]
+
+
+data SelectionBlock
+    = SelectionBlock
+    { blockSource :: Text
+    , blockReason :: Text
+    , blockText :: Text
+    , bytes :: Int
+    }
+
+
+instance ToJSON SelectionBlock where
+    toJSON block =
+        object
+            [ "source" .= block.blockSource
+            , "reason" .= block.blockReason
+            , "text" .= block.blockText
+            , "bytes" .= block.bytes
+            ]
 
 
 type Block = (Text, Text, Text)
@@ -43,35 +85,55 @@ buildPrompt
     -> [Person]
     -> Conversation
     -> [Chat.Message]
-    -> [Goal.Goal]
-    -> [Memory.Memory]
+    -> [Goal]
+    -> [Memory]
     -> Either String Prompt
 buildPrompt person roster conversation history goals memories =
-    if coreCost + latestCost > budget
-        then
-            Left
-                "Identity, active goals, shared note, and the latest message \
-                \exceed the context budget. Shorten these inputs before retrying."
-        else
-            Right
-                ( Prompt
-                    rules
-                    (T.intercalate "\n\n" (map render included))
-                    ( object
-                        [ "included" .= map describe included
-                        , "omitted" .= map describe omitted
-                        , "budget_unit" .= ("UTF-8 bytes, not tokenizer counts" :: Text)
-                        , "context_budget" .= budget
-                        , "memory_allowance" .= memoryAllowance
-                        ]
-                    )
-                )
+    case person.kind of
+        Person.Human ->
+            Left "Human participants cannot generate replies."
+        Person.AI profile ->
+            buildAIPrompt person profile roster conversation history goals memories
+
+
+buildAIPrompt
+    :: Person
+    -> AIProfile
+    -> [Person]
+    -> Conversation
+    -> [Chat.Message]
+    -> [Goal]
+    -> [Memory]
+    -> Either String Prompt
+buildAIPrompt person profile roster conversation history goals memories =
+    if T.null (T.strip profile.identity)
+        then Left "Add an identity for this person before generating a reply."
+        else assemble
     where
+        assemble :: Either String Prompt
+        assemble =
+            if coreCost + latestCost > budget
+                then
+                    Left
+                        "Identity, active goals, shared note, and the latest message \
+                        \exceed the context budget. Shorten these inputs before retrying."
+                else
+                    Right
+                        ( Prompt
+                            rules
+                            (T.intercalate "\n\n" (map render included))
+                            ( PromptSelection
+                                (map describe included)
+                                (map describe omitted)
+                                budget
+                                memoryAllowance
+                            )
+                        )
         rules :: Text
         rules =
             T.unlines
                 [ "You are an AI person participating in a real software \
-                  \application with other AI people and a human user."
+                  \application with other AI and human people."
                 , "Speak only as the selected person. Preserve your identity and \
                   \pursue your own stated aspirations and goals."
                 , "You have no physical body, fictional location, or off-screen \
@@ -118,13 +180,18 @@ buildPrompt person roster conversation history goals memories =
                 , "person"
                 , person.name
                     <> "\n"
-                    <> person.identity
+                    <> profile.identity
                     <> "\nAspirations: "
-                    <> person.aspirations
+                    <> profile.aspirations
                 )
             ]
+        describeParticipant :: Person -> Text
+        describeParticipant participant =
+            participant.name <> " (" <> case participant.kind of
+                Person.Human -> "human)"
+                Person.AI _ -> "AI)"
         participants :: [Block]
-        participants = [("participants", "conversation", T.intercalate ", " (map (.name) roster))]
+        participants = [("participants", "conversation", T.intercalate ", " (map describeParticipant roster))]
         activeGoals :: [Block]
         activeGoals =
             [ ("goal:" <> number g.id, "active goal", goalText g.description)
@@ -144,9 +211,9 @@ buildPrompt person roster conversation history goals memories =
             [ ("shared-note", "current database state", noteText conversation.note)
             | not (T.null (noteText conversation.note))
             ]
-        candidates :: [Memory.Memory]
+        candidates :: [Memory]
         candidates = sortOn (Down . (.id)) memories
-        eligible :: [Memory.Memory]
+        eligible :: [Memory]
         eligible =
             filter
                 (\m -> not m.retired && matches query (keywordsText m.keywords))
@@ -183,17 +250,11 @@ buildPrompt person roster conversation history goals memories =
         included = core ++ memoryIn ++ reverse historyNewest ++ latest
         omitted :: [Block]
         omitted = excluded ++ map budgetReason (historyOut ++ memoryOut)
-        author :: Maybe PersonId.PersonId -> Text
-        author Nothing = "User"
-        author (Just authorId) = maybe "Unknown participant" (.name) (findPerson authorId roster)
-        describe :: Block -> Value
+        author :: PersonId.PersonId -> Text
+        author authorId = maybe "Unknown participant" (.name) (findPerson authorId roster)
+        describe :: Block -> SelectionBlock
         describe (source, reason, content) =
-            object
-                [ "source" .= source
-                , "reason" .= reason
-                , "text" .= content
-                , "bytes" .= size (render (source, reason, content))
-                ]
+            SelectionBlock source reason content (size (render (source, reason, content)))
 
 
 number :: (Show a) => a -> Text

@@ -12,7 +12,7 @@ import Cookies exposing (Cookies)
 import GoalDescription exposing (GoalDescription(..))
 import GoalId exposing (GoalId)
 import Origin exposing (Origin(..))
-import Person exposing (Person)
+import Person
 import PersonId exposing (PersonId)
 import Rows as R exposing (Rows)
 import Security
@@ -66,9 +66,8 @@ createGoal _ personId description =
 insertGoal : PersonId -> GoalDescription -> Origin -> Transaction ()
 insertGoal personId description source =
     let
-        person : Person
-        person :=
-            Person.requirePerson personId
+        () :=
+            Person.requireAI personId
 
         id : GoalId
         id :=

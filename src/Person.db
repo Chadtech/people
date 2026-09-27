@@ -1,7 +1,10 @@
 database module Person exposing
-    ( Person
+    ( Kind(..)
+    , Person
     , PersonPageFlags
     , allPersons
+    , createHuman
+    , requireAI
     , requirePerson
     , endpoint createNewPerson
     , endpoint getAllPersons
@@ -9,6 +12,7 @@ database module Person exposing
     , endpoint updatePersonIdentity
     )
 
+import AIProfile exposing (AIProfile)
 import Cookies exposing (Cookies)
 import PersonId exposing (PersonId)
 import Revision exposing (Revision(..))
@@ -19,11 +23,15 @@ import Store
 import Table exposing (Table)
 
 
+type Kind
+    = Human
+    | AI AIProfile
+
+
 type alias Person =
     { id : PersonId
+    , kind : Kind
     , name : String
-    , identity : String
-    , aspirations : String
     , revision : Revision
     }
 
@@ -50,6 +58,16 @@ personIds :=
 
 createNewPerson : Cookies -> String -> Transaction PersonId
 createNewPerson _ name =
+    createPerson (AI { identity = "", aspirations = "" }) name
+
+
+createHuman : String -> Transaction PersonId
+createHuman name =
+    createPerson Human name
+
+
+createPerson : Kind -> String -> Transaction PersonId
+createPerson kind name =
     let
         id : PersonId
         id :=
@@ -59,9 +77,8 @@ createNewPerson _ name =
             Table.insert people
                 Security.Unrestricted
                 { id = id
+                , kind = kind
                 , name = name
-                , identity = ""
-                , aspirations = ""
                 , revision = Revision 0
                 }
     in
@@ -78,21 +95,17 @@ updatePersonIdentity :
 updatePersonIdentity _ personId expectedRevision identity aspirations =
     let
         () :=
+            requireAI personId
+
+        () :=
             Store.update people
                 (\person -> person.id == personId && person.revision == expectedRevision)
-                (\person -> { person | revision = Revision.nextRevision person.revision })
-
-        () :=
-            Store.updateString people
-                (\person -> person.id == personId)
-                (\value person -> { person | identity = value })
-                identity
-
-        () :=
-            Store.updateString people
-                (\person -> person.id == personId)
-                (\value person -> { person | aspirations = value })
-                aspirations
+                (\person ->
+                    { person
+                        | kind = AI { identity = identity, aspirations = aspirations }
+                        , revision = Revision.nextRevision person.revision
+                    }
+                )
 
         savedPerson : Person
         savedPerson :=
@@ -131,3 +144,18 @@ requirePerson : PersonId -> Transaction Person
 requirePerson personId =
     Store.require people
         (\person -> person.id == personId)
+
+
+requireAI : PersonId -> Transaction ()
+requireAI personId =
+    let
+        person : Person
+        person :=
+            requirePerson personId
+    in
+    case person.kind of
+        AI _ ->
+            Transaction.succeed ()
+
+        Human ->
+            Transaction.fail

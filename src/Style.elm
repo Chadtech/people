@@ -15,6 +15,7 @@ module Style exposing
     , bgYellow1
     , block
     , border
+    , border0
     , borderB
     , borderGray2
     , borderGray4
@@ -99,6 +100,7 @@ module Style exposing
     , leftNeg128
     , lg
     , link
+    , listNone
     , m0
     , m2
     , m4
@@ -530,6 +532,11 @@ border =
 borderLg : Css.Style
 borderLg =
     border
+
+
+border0 : Css.Style
+border0 =
+    Css.border (Css.px 0)
 
 
 borderNone : Css.Style
@@ -2011,6 +2018,11 @@ displayNone =
 block : Css.Style
 block =
     Css.display Css.block
+
+
+listNone : Css.Style
+listNone =
+    Css.property "list-style" "none"
 
 
 whitespacePreWrap : Css.Style

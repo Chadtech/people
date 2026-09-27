@@ -5,7 +5,6 @@ import ConversationId exposing (ConversationId)
 import ConversationId.Util as ConversationIdUtil
 import ConversationTitle
 import ConversationTitle.Util as ConversationTitleUtil
-import Css
 import Document exposing (Document)
 import Effect as E exposing (Eff)
 import Html.Styled as H exposing (Html)
@@ -202,7 +201,7 @@ conversationList model =
                 []
                 [ H.a
                     [ Route.href (Route.Conversation c.id)
-                    , A.css [ S.link, Css.property "overflow-wrap" "anywhere" ]
+                    , A.css [ S.link, S.wrapAnywhere ]
                     ]
                     [ H.text (ConversationTitleUtil.toString c.title) ]
                 ]
@@ -213,7 +212,7 @@ conversationList model =
             [ A.css
                 [ S.col
                 , S.g2
-                , Css.property "list-style" "none"
+                , S.listNone
                 ]
             ]
             (case model.conversations of
@@ -223,7 +222,7 @@ conversationList model =
                 conversations ->
                     List.map conversationLink conversations
             )
-        , H.fieldset [ A.attribute "aria-labelledby" "new-conversation-heading", A.disabled model.pending, A.css [ Css.border (Css.px 0), S.col, S.g2 ] ]
+        , H.fieldset [ A.attribute "aria-labelledby" "new-conversation-heading", A.disabled model.pending, A.css [ S.border0, S.col, S.g2 ] ]
             [ H.div [ A.css [ S.col, S.g3 ] ]
                 [ H.h2 [ A.id "new-conversation-heading", A.css [ S.textGray3 ] ] [ H.text "New conversation" ]
                 , H.label

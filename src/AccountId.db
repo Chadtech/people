@@ -1,0 +1,5 @@
+database module AccountId exposing (AccountId(..))
+
+
+type AccountId
+    = AccountId UInt64

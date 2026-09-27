@@ -67,6 +67,34 @@ Start the worker (in a separate terminal from `make dev`) with:
 cabal run exe:people-worker -- run http://localhost:9000
 ```
 
+On a conversation page, the Person menu defaults to **Myself**. Type a message
+and choose Send to post as You, without queuing a model call. Select an AI person
+and choose Let selected person reply to request a response. Switching the selection
+preserves an unsent human draft. You can post while an AI is generating; an
+already-running reply finishes using its saved context. Autonomy, if enabled,
+continues on its existing schedule.
+
+`Person.kind` is `Human | AI AIProfile`: only the AI variant contains identity
+and aspirations. Humans have no empty or optional AI profile fields. Human
+profile pages show common details; AI pages keep their profile, goals, and
+memory editors. The backend rejects AI-profile updates, goals, and memories
+for human people. Every message has an explicit
+`PersonId` author. `LocalAccount` resolves the server-owned local human account;
+`Chat.sendMessage` never accepts a client-supplied author. Conversations include
+the local human on creation, and sending joins the human to an older conversation.
+`Chat.requestTurn` only queues AI work, checks membership and AI eligibility, and
+never posts a human message. The worker also excludes humans from its scheduler.
+Prompt snapshots retain the included message IDs and exact context: later human
+messages do not silently change a response already in flight.
+
+This is still the local, single-account MVP. The account has a stable identity
+for the lifetime of the current Acadia database, including browser reloads and
+worker restarts. All local browser sessions currently act as that same account.
+Multi-user authentication, invitations, membership permissions, and durable
+storage remain future work; these unrestricted local endpoints are not a
+multi-user authorization system. Schema changes require rebuilding both clients
+and restarting Acadia; its current in-memory state is not migrated.
+
 Give a person an identity on their page, then create a conversation and select
 its participants. Individual replies and bounded runs are queued in Acadia.
 Enable autonomy for one turn every five minutes; Stop disables it. The interval,
@@ -224,7 +252,6 @@ particularly deep Elm decoder. Other used decoders still contain nested calls,
 so removing that constructor is not by itself proof that IDE analysis is fixed.
 
 `Store.require` returns a matching row or fails the transaction; `ensure` checks
-existence without returning it; `update` checks before changing it. Its
-`updateString` helper centralizes the empty-parameter SQL NULL workaround used
-by identity updates. The integration suite verifies both empty fields and stale
-revision rejection against the real runtime.
+existence without returning it; `update` checks before changing it. AI profiles
+are serialized inside the AI variant. The integration suite verifies empty
+profile fields and stale revision rejection against the real runtime.

@@ -68,8 +68,13 @@ runCycle database requestValue generate =
         run = Database.runTransaction database
         schedule :: Conversation -> IO ()
         schedule conversation = handleFailure $ do
-            participants <-
-                sortOn personNumber <$> run (Conversation.getParticipants conversation.id)
+            members <- run (Conversation.getParticipants conversation.id)
+            people <- run Person.getAllPersons
+            let
+                participants :: [PersonId.PersonId]
+                participants =
+                    sortOn personNumber
+                        [p.id | p <- people, p.id `elem` members, isAI p]
             case participants of
                 [] -> run (Chat.stopConversation conversation.id)
                 firstParticipant : _ -> do
@@ -82,7 +87,7 @@ runCycle database requestValue generate =
                         speaker = case later of
                             next : _ -> next
                             [] -> firstParticipant
-                    void (run (Chat.requestTurn conversation.id conversation.revision speaker ""))
+                    void (run (Chat.requestTurn conversation.id conversation.revision speaker))
         process :: Generation -> IO ()
         process generation = do
             claimed <-
@@ -113,10 +118,6 @@ runCycle database requestValue generate =
                     messages <- run (Chat.getMessages conversation.id)
                     goals <- run (Goal.getGoals person.id)
                     memories <- run (Memory.getMemories person.id)
-                    if T.null (T.strip person.identity)
-                        then
-                            ioError (userError "Add an identity for this person before generating a reply.")
-                        else pure ()
                     prompt <-
                         either
                             (ioError . userError)
@@ -186,3 +187,10 @@ handleFailure operation =
     operation `catch` \(err :: SomeException) -> do
         rethrowAsync err
         putStrLn "Database operation failed; the worker will check again."
+
+
+isAI :: Person -> Bool
+isAI person =
+    case person.kind of
+        Person.AI _ -> True
+        Person.Human -> False
