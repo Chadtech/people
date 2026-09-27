@@ -47,7 +47,7 @@ import Set exposing (Set)
 import Shared
 import Style as S
 import Time
-import TurnCount
+import TurnCount exposing (TurnCount)
 import View.Button as Button
 import View.Textarea as Textarea
 
@@ -114,7 +114,7 @@ type Msg
     | SpeakerSelectionChanged String
     | SendButtonClicked
     | ReplyButtonClicked
-    | RunButtonClicked
+    | RunButtonClicked TurnCount
     | AutonomyButtonClicked
     | StopButtonClicked
     | AddParticipantButtonClicked
@@ -579,13 +579,13 @@ update msg model =
         ReplyButtonClicked ->
             requestTurn model
 
-        RunButtonClicked ->
+        RunButtonClicked turns ->
             mutateConversation
                 (\c ->
                     Conversation.setRunLength
                         c.id
                         c.revision
-                        (TurnCount.TurnCount (Acadia.UInt8.fromInt 6))
+                        turns
                 )
                 model
 
@@ -875,6 +875,14 @@ composerView model conversation =
         replyControls : Html Msg
         replyControls =
             let
+                runButton : String -> Int -> Html Msg
+                runButton label turns =
+                    Button.secondary label
+                        (RunButtonClicked
+                            (TurnCount.TurnCount (Acadia.UInt8.fromInt turns))
+                        )
+                        |> Button.toHtml
+
                 autonomyButton : Html Msg
                 autonomyButton =
                     if conversation.autonomous then
@@ -894,8 +902,8 @@ composerView model conversation =
                         ]
                     ]
                     [ selectedReply
-                    , Button.secondary "Run 6 turns" RunButtonClicked
-                        |> Button.toHtml
+                    , runButton "Run 1 turn" 1
+                    , runButton "Run 6 turns" 6
                     , autonomyButton
                     ]
 

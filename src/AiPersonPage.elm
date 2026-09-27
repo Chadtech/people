@@ -1,5 +1,6 @@
 module AiPersonPage exposing
-    ( Model
+    ( Flags
+    , Model
     , Msg
     , document
     , init
@@ -14,13 +15,13 @@ import Css
 import Document exposing (Document)
 import Effect as E exposing (Eff)
 import GenerationId.Util as GenerationIdUtil
-import Goal
+import Goal exposing (Goal)
 import GoalDescription
 import GoalDescription.Util as GoalDescriptionUtil
 import GoalId exposing (GoalId)
 import Html.Styled as H exposing (Html)
 import Html.Styled.Attributes as A
-import Memory
+import Memory exposing (Memory)
 import MemoryContent
 import MemoryContent.Util as MemoryContentUtil
 import MemoryId exposing (MemoryId)
@@ -49,8 +50,8 @@ type alias Model =
     , identity : String
     , aspirations : String
     , status : Status
-    , goals : Maybe (List Goal.Goal)
-    , memories : Maybe (List Memory.Memory)
+    , goals : List Goal
+    , memories : List Memory
     , goalDraft : String
     , memoryDraft : String
     , keywords : String
@@ -82,8 +83,8 @@ type Msg
     | AspirationsInputChanged String
     | SaveButtonClicked
     | IdentityResponseReceived PersonId (Maybe PersonPageFlags)
-    | GoalsResponseReceived PersonId (Maybe (List Goal.Goal))
-    | MemoriesResponseReceived PersonId (Maybe (List Memory.Memory))
+    | GoalsResponseReceived PersonId (Maybe (List Goal))
+    | MemoriesResponseReceived PersonId (Maybe (List Memory))
     | GoalInputChanged String
     | MemoryInputChanged String
     | KeywordsInputChanged String
@@ -107,23 +108,29 @@ type Mutation
 -----------------------------------------------------------------
 
 
-init : Shared.Model -> Person -> AiPersonProfile -> ( Model, Eff Msg )
-init sharedModel person profile =
-    ( { shared = sharedModel
-      , person = person
-      , identity = profile.identity
-      , aspirations = profile.aspirations
-      , status = Idle
-      , goals = Nothing
-      , memories = Nothing
-      , goalDraft = ""
-      , memoryDraft = ""
-      , keywords = ""
-      , pending = False
-      , mindStatus = MindIdle
-      }
-    , refresh person.id
-    )
+type alias Flags =
+    { person : Person
+    , profile : AiPersonProfile
+    , goals : List Goal
+    , memories : List Memory
+    }
+
+
+init : Shared.Model -> Flags -> Model
+init sharedModel flags =
+    { shared = sharedModel
+    , person = flags.person
+    , identity = flags.profile.identity
+    , aspirations = flags.profile.aspirations
+    , status = Idle
+    , goals = flags.goals
+    , memories = flags.memories
+    , goalDraft = ""
+    , memoryDraft = ""
+    , keywords = ""
+    , pending = False
+    , mindStatus = MindIdle
+    }
 
 
 
@@ -197,14 +204,14 @@ update msg model =
                 ( model, E.none )
 
             else
-                ( { model | goals = Just goals }, E.none )
+                ( { model | goals = goals }, E.none )
 
         MemoriesResponseReceived personId (Just memories) ->
             if personId /= model.person.id then
                 ( model, E.none )
 
             else
-                ( { model | memories = Just memories }, E.none )
+                ( { model | memories = memories }, E.none )
 
         GoalsResponseReceived personId Nothing ->
             if personId /= model.person.id then
@@ -408,7 +415,7 @@ mindView model =
         , button model "Refresh" RefreshClicked
         , H.p [ A.attribute "role" "status" ] [ H.text (mindStatusToString model.mindStatus) ]
         , H.h2 [ A.css [ S.textGray3 ] ] [ H.text "Goals" ]
-        , rows "Loading goals…" "No goals yet." (List.map (goalView model)) model.goals
+        , rows "No goals yet." (List.map (goalView model)) model.goals
         , field
             "New goal"
             (View.Textarea.simple model.goalDraft GoalInputChanged
@@ -424,7 +431,7 @@ mindView model =
                     ++ "prompts."
                 )
             ]
-        , rows "Loading memories…" "No memories yet." (List.map (memoryView model)) model.memories
+        , rows "No memories yet." (List.map (memoryView model)) model.memories
         , field
             "New memory"
             (View.Textarea.simple model.memoryDraft MemoryInputChanged
@@ -439,22 +446,22 @@ mindView model =
         ]
 
 
-rows : String -> String -> (List a -> List (Html msg)) -> Maybe (List a) -> Html msg
-rows loading empty render values =
-    H.div [ A.css [ S.col, S.g3 ] ]
-        (case values of
-            Nothing ->
-                [ H.text loading ]
+rows : String -> (List a -> List (Html msg)) -> List a -> Html msg
+rows empty render values =
+    let
+        content : List (Html msg)
+        content =
+            case values of
+                [] ->
+                    [ H.text empty ]
 
-            Just [] ->
-                [ H.text empty ]
-
-            Just items ->
-                render items
-        )
+                items ->
+                    render items
+    in
+    H.div [ A.css [ S.col, S.g3 ] ] content
 
 
-goalView : Model -> Goal.Goal -> Html Msg
+goalView : Model -> Goal -> Html Msg
 goalView model goal =
     H.div [ A.css [ S.col, S.g2 ] ]
         [ H.p [] [ H.text (GoalDescriptionUtil.toString goal.description) ]
@@ -471,7 +478,7 @@ goalView model goal =
         ]
 
 
-memoryView : Model -> Memory.Memory -> Html Msg
+memoryView : Model -> Memory -> Html Msg
 memoryView model memory =
     H.div [ A.css [ S.col, S.g2 ] ]
         [ H.p [] [ H.text (MemoryContentUtil.toString memory.content) ]

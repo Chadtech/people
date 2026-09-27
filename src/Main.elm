@@ -1,6 +1,7 @@
 module Main exposing (main)
 
 import AiPersonPage
+import AiPersonProfile exposing (AiPersonProfile)
 import AllConversations
 import AllPersons
 import Browser
@@ -13,11 +14,13 @@ import Css.Global
 import DevelopmentData
 import Document exposing (Document)
 import Effect as E exposing (Eff)
+import Goal exposing (Goal)
 import Html.Styled as H
 import Html.Styled.Attributes as A
 import HumanPersonPage
+import Memory exposing (Memory)
 import NewPerson
-import Person exposing (PersonPageFlags)
+import Person exposing (Person, PersonPageFlags)
 import PersonId exposing (PersonId)
 import Remote exposing (Remote)
 import Route exposing (Route)
@@ -43,6 +46,8 @@ type LoadTarget
     = ConversationsTarget
     | ConversationTarget ConversationId
     | PersonTarget PersonId
+    | AiPersonGoalsTarget Person AiPersonProfile
+    | AiPersonMemoriesTarget Person AiPersonProfile (List Goal)
     | DevelopmentDataTarget (Maybe Route)
 
 
@@ -58,6 +63,8 @@ type Msg
     | AllConversationsResponseReceived (Maybe AllConversations.Flags)
     | ConversationResponseReceived ConversationId (Remote ConversationPage.Flags)
     | LoadedPersonPage PersonId (Remote PersonPageFlags)
+    | AiPersonGoalsResponseReceived PersonId (Maybe (List Goal))
+    | AiPersonMemoriesResponseReceived PersonId (Maybe (List Memory))
     | SidebarMsg Sidebar.Msg
     | DevelopmentDataResponseReceived (Maybe ())
 
@@ -349,15 +356,62 @@ update msg page =
                                         )
 
                                     Person.AiPerson profile ->
-                                        AiPersonPage.init sharedModel flags.person profile
-                                            |> Tuple.mapFirst AiPerson
-                                            |> Tuple.mapSecond (E.map AiPersonMsg)
+                                        ( Loading sharedModel (AiPersonGoalsTarget flags.person profile)
+                                        , E.attempt (AiPersonGoalsResponseReceived personId)
+                                            (Goal.getGoals personId)
+                                        )
 
                             Remote.Failed ->
                                 ( LoadFailed sharedModel, E.none )
 
                             Remote.NotFound ->
                                 ( PageNotFound sharedModel, E.none )
+
+                _ ->
+                    ( page, E.none )
+
+        AiPersonGoalsResponseReceived personId response ->
+            case page of
+                Loading sharedModel (AiPersonGoalsTarget person profile) ->
+                    if personId /= person.id then
+                        ( page, E.none )
+
+                    else
+                        case response of
+                            Just goals ->
+                                ( Loading sharedModel (AiPersonMemoriesTarget person profile goals)
+                                , E.attempt (AiPersonMemoriesResponseReceived personId)
+                                    (Memory.getMemories personId)
+                                )
+
+                            Nothing ->
+                                ( LoadFailed sharedModel, E.none )
+
+                _ ->
+                    ( page, E.none )
+
+        AiPersonMemoriesResponseReceived personId response ->
+            case page of
+                Loading sharedModel (AiPersonMemoriesTarget person profile goals) ->
+                    if personId /= person.id then
+                        ( page, E.none )
+
+                    else
+                        case response of
+                            Just memories ->
+                                ( AiPerson
+                                    (AiPersonPage.init sharedModel
+                                        { person = person
+                                        , profile = profile
+                                        , goals = goals
+                                        , memories = memories
+                                        }
+                                    )
+                                , E.none
+                                )
+
+                            Nothing ->
+                                ( LoadFailed sharedModel, E.none )
 
                 _ ->
                     ( page, E.none )

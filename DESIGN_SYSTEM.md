@@ -167,6 +167,10 @@ goals, and memory editors. Do not render disabled or empty AI fields for humans.
 Human and AI profile save feedback uses custom status types; AI goals and memories
 have a separate `MindStatus` type. Derive display text from these states.
 The human profile saving state also disables the form.
+Main loads AI goals and memories before initializing AiPersonPage. Required lists
+use plain List values, with [] representing a successful empty result. Initial
+failures use the shared route failure view; later refresh failures retain the
+last loaded lists and show feedback within the page.
 
 AI goals and memories share the existing panel surface. A borderless native
 fieldset disables related controls while saving. Keep human-entered records and
@@ -192,7 +196,8 @@ actual profile names for every participant. The human selection shows the messag
 composer and Send; an AI selection shows the reply request action. Switching
 people preserves an unsent human draft. Sending a human message does not itself
 request a reply and remains available during an AI turn. Automatic runs select
-only AI participants. Human profiles have editable names used in transcripts and
+only AI participants. Offer “Run 1 turn” alongside “Run 6 turns” so the
+conversation can advance a single automatic reply at a time. Human profiles have editable names used in transcripts and
 future prompts, with an Edit human profile link in conversations. Development fixtures create the local
 human as Chadtech. Missing accounts or unresolved person references are errors;
 never substitute placeholder names. Resolve authors before accepting conversation
@@ -262,6 +267,8 @@ experiment into an established preference or expand a small task into a redesign
 
 | Date | Status | Decision and reason |
 | --- | --- | --- |
+| 2026-09-27 | Established | Initialize AI person pages only after goals and memories load successfully; keep initial loading and failure in Main and preserve loaded lists on refresh failure. |
+| 2026-09-27 | Established | Offer single-turn and six-turn automatic runs together, allowing incremental conversation progress. |
 | 2026-09-27 | Established | AI identity and goals/memory feedback use custom status types instead of strings, with text derived in the view. |
 | 2026-09-27 | Established | Missing person references fail at data boundaries instead of displaying placeholder names. Development fixtures explicitly seed Chadtech as the local human. |
 | 2026-09-27 | Established | Human profile save states use a custom type to keep form availability and feedback consistent. Profile layout uses shared Style helpers. |
