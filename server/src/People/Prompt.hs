@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module People.Prompt (Prompt (..), PromptSelection (..), SelectionBlock (..), buildPrompt) where
+module People.Prompt (Prompt (..), PromptSelection (..), SelectionBlock (..), PromptError (..), errorToString, buildPrompt) where
 
 import qualified GoalDescription
 import qualified MemoryContent
@@ -10,7 +10,7 @@ import qualified MessageContent
 import qualified Note
 import People.DomainInstances ()
 
-import AIProfile (AIProfile)
+import AiPersonProfile (AiPersonProfile)
 import qualified Chat
 import Conversation (Conversation)
 import Data.Aeson (ToJSON (toJSON), object, (.=))
@@ -27,6 +27,31 @@ import qualified Origin
 import Person (Person)
 import qualified Person
 import qualified PersonId
+
+
+data PromptError
+    = HumanCannotGenerate
+    | NameRequired
+    | IdentityRequired
+    | MessageAuthorMissing
+    | ContextBudgetExceeded
+    deriving (Eq, Show)
+
+
+errorToString :: PromptError -> String
+errorToString promptError =
+    case promptError of
+        HumanCannotGenerate ->
+            "Human participants cannot generate replies."
+        NameRequired ->
+            "A person has no name. Set their name before generating a reply."
+        IdentityRequired ->
+            "Add an identity for this person before generating a reply."
+        MessageAuthorMissing ->
+            "A message author could not be resolved. Repair the conversation before generating a reply."
+        ContextBudgetExceeded ->
+            "Identity, active goals, shared note, and the latest message \
+            \exceed the context budget. Shorten these inputs before retrying."
 
 
 -- The snapshot records selection decisions separately from model-visible text.
@@ -87,48 +112,73 @@ buildPrompt
     -> [Chat.Message]
     -> [Goal]
     -> [Memory]
-    -> Either String Prompt
+    -> Either PromptError Prompt
 buildPrompt person roster conversation history goals memories =
     case person.kind of
-        Person.Human ->
-            Left "Human participants cannot generate replies."
-        Person.AI profile ->
-            buildAIPrompt person profile roster conversation history goals memories
+        Person.HumanPerson ->
+            Left HumanCannotGenerate
+        Person.AiPerson profile ->
+            buildAiPersonPrompt person profile roster conversation history goals memories
 
 
-buildAIPrompt
+buildAiPersonPrompt
     :: Person
-    -> AIProfile
+    -> AiPersonProfile
     -> [Person]
     -> Conversation
     -> [Chat.Message]
     -> [Goal]
     -> [Memory]
-    -> Either String Prompt
-buildAIPrompt person profile roster conversation history goals memories =
+    -> Either PromptError Prompt
+buildAiPersonPrompt person profile roster conversation history goals memories = do
+    mapM_ requireName (person : roster)
+    attributedHistory <- traverse attributeMessage (sortOn (.id) history)
     if T.null (T.strip profile.identity)
-        then Left "Add an identity for this person before generating a reply."
-        else assemble
+        then Left IdentityRequired
+        else assemble attributedHistory
     where
-        assemble :: Either String Prompt
-        assemble =
-            if coreCost + latestCost > budget
-                then
-                    Left
-                        "Identity, active goals, shared note, and the latest message \
-                        \exceed the context budget. Shorten these inputs before retrying."
-                else
-                    Right
-                        ( Prompt
-                            rules
-                            (T.intercalate "\n\n" (map render included))
-                            ( PromptSelection
-                                (map describe included)
-                                (map describe omitted)
-                                budget
-                                memoryAllowance
+        assemble :: [(Chat.Message, Text)] -> Either PromptError Prompt
+        assemble attributedHistory =
+            let
+                recent :: [Block]
+                recent =
+                    [ ("message:" <> number m.id, "recent conversation", name <> ": " <> messageText m.content)
+                    | (m, name) <- attributedHistory
+                    ]
+                latest, older :: [Block]
+                (latest, older) = case reverse recent of
+                    [] -> ([], [])
+                    newest : rest -> ([newest], rest)
+                latestCost :: Int
+                latestCost = sum (map cost latest)
+                available :: Int
+                available = budget - coreCost - latestCost
+                memoryAllowance :: Int
+                memoryAllowance = min 6000 (available `div` 3)
+                memoryIn, memoryOut :: [Block]
+                memoryUsed :: Int
+                (memoryIn, memoryOut, memoryUsed) = fit memoryAllowance memoryBlocks
+                historyNewest, historyOut :: [Block]
+                (historyNewest, historyOut, _) = fit (available - memoryUsed) older
+                included, omitted :: [Block]
+                included = core ++ memoryIn ++ reverse historyNewest ++ latest
+                omitted = excluded ++ map budgetReason (historyOut ++ memoryOut)
+            in
+                if coreCost + latestCost > budget
+                    then
+                        Left ContextBudgetExceeded
+                    else
+                        Right
+                            ( Prompt
+                                rules
+                                (T.intercalate "\n\n" (map render included))
+                                ( PromptSelection
+                                    (map describe included)
+                                    (map describe omitted)
+                                    budget
+                                    memoryAllowance
+                                )
                             )
-                        )
         rules :: Text
         rules =
             T.unlines
@@ -157,12 +207,6 @@ buildAIPrompt person profile roster conversation history goals memories =
                 ]
         budget :: Int
         budget = 24000
-        latest, older :: [Block]
-        (latest, older) = case reverse recent of
-            [] -> ([], [])
-            newest : rest -> ([newest], rest)
-        latestCost :: Int
-        latestCost = sum (map cost latest)
         coreCost :: Int
         coreCost = sum (map cost core)
         orderedHistory :: [Chat.Message]
@@ -188,8 +232,8 @@ buildAIPrompt person profile roster conversation history goals memories =
         describeParticipant :: Person -> Text
         describeParticipant participant =
             participant.name <> " (" <> case participant.kind of
-                Person.Human -> "human)"
-                Person.AI _ -> "AI)"
+                Person.HumanPerson -> "human)"
+                Person.AiPerson _ -> "AI)"
         participants :: [Block]
         participants = [("participants", "conversation", T.intercalate ", " (map describeParticipant roster))]
         activeGoals :: [Block]
@@ -197,14 +241,6 @@ buildAIPrompt person profile roster conversation history goals memories =
             [ ("goal:" <> number g.id, "active goal", goalText g.description)
             | g <- sortOn (.id) goals
             , isActive g.status
-            ]
-        recent :: [Block]
-        recent =
-            [ ( "message:" <> number m.id
-              , "recent conversation"
-              , author m.author <> ": " <> messageText m.content
-              )
-            | m <- orderedHistory
             ]
         note :: [Block]
         note =
@@ -237,21 +273,15 @@ buildAIPrompt person profile roster conversation history goals memories =
         -- conversation cannot permanently crowd out this person's recollections.
         core :: [Block]
         core = ident ++ participants ++ activeGoals ++ note
-        available :: Int
-        available = budget - coreCost - latestCost
-        memoryAllowance :: Int
-        memoryAllowance = min 6000 (available `div` 3)
-        memoryIn, memoryOut :: [Block]
-        memoryUsed :: Int
-        (memoryIn, memoryOut, memoryUsed) = fit memoryAllowance memoryBlocks
-        historyNewest, historyOut :: [Block]
-        (historyNewest, historyOut, _) = fit (available - memoryUsed) older
-        included :: [Block]
-        included = core ++ memoryIn ++ reverse historyNewest ++ latest
-        omitted :: [Block]
-        omitted = excluded ++ map budgetReason (historyOut ++ memoryOut)
-        author :: PersonId.PersonId -> Text
-        author authorId = maybe "Unknown participant" (.name) (findPerson authorId roster)
+        requireName :: Person -> Either PromptError ()
+        requireName participant
+            | T.null (T.strip participant.name) = Left NameRequired
+            | otherwise = Right ()
+        attributeMessage :: Chat.Message -> Either PromptError (Chat.Message, Text)
+        attributeMessage message =
+            case findPerson message.author roster of
+                Nothing -> Left MessageAuthorMissing
+                Just author -> Right (message, author.name)
         describe :: Block -> SelectionBlock
         describe (source, reason, content) =
             SelectionBlock source reason content (size (render (source, reason, content)))

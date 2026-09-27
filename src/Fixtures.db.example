@@ -1,11 +1,13 @@
 database module Fixtures exposing ( endpoint fillDevelopmentData )
 
+import AccountId exposing (AccountId(..))
 import Conversation
 import ConversationId exposing (ConversationId)
 import ConversationTitle exposing (ConversationTitle(..))
 import Cookies exposing (Cookies)
 import Goal
 import GoalDescription exposing (GoalDescription(..))
+import LocalAccount
 import Memory
 import MemoryContent exposing (MemoryContent(..))
 import MemoryKeywords exposing (MemoryKeywords(..))
@@ -47,6 +49,14 @@ fillDevelopmentData cookies =
             let
                 () :=
                     Table.insert state Security.Unrestricted { key = 1 }
+
+                chadtech : PersonId
+                chadtech :=
+                    Person.createHumanPerson "Chadtech"
+
+                () :=
+                    Table.insert LocalAccount.accounts Security.Unrestricted
+                        { id = AccountId 1, personId = chadtech }
 
                 elias : PersonId
                 elias :=

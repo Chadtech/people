@@ -61,7 +61,7 @@ insertMemory : PersonId -> MemoryContent -> MemoryKeywords -> Origin -> Transact
 insertMemory personId content (MemoryKeywords keywords) source =
     let
         () :=
-            Person.requireAI personId
+            Person.requireAiPerson personId
 
         id : MemoryId
         id :=

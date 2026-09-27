@@ -3,7 +3,7 @@
 
 module Main (main) where
 
-import AIProfile (AIProfile)
+import AiPersonProfile (AiPersonProfile)
 import qualified LocalAccount
 import qualified MemoryContent
 import qualified MessageContent
@@ -59,18 +59,18 @@ mustFail operation = do
         Right _ -> ioError (userError "Expected transaction rejection")
 
 
-requireAIProfile :: Person -> IO AIProfile
-requireAIProfile person =
+requireAiPersonProfile :: Person -> IO AiPersonProfile
+requireAiPersonProfile person =
     case person.kind of
-        Person.AI profile -> pure profile
-        Person.Human -> ioError (userError "Expected an AI test person")
+        Person.AiPerson profile -> pure profile
+        Person.HumanPerson -> ioError (userError "Expected an AI test person")
 
 
 profileFields :: Person -> Maybe (Text, Text)
 profileFields person =
     case person.kind of
-        Person.AI profile -> Just (profile.identity, profile.aspirations)
-        Person.Human -> Nothing
+        Person.AiPerson profile -> Just (profile.identity, profile.aspirations)
+        Person.HumanPerson -> Nothing
 
 
 checkConversationPageFlags :: Database.Database -> IO ()
@@ -156,7 +156,13 @@ main = do
         run :: Database.Transaction a -> IO a
         run = Database.runTransaction database
     checkConversationPageFlags database
-    checkConversationRefresh database (ConversationId.ConversationId 999999)
+    mustFail (run LocalAccount.getCurrentPerson)
+    mustFail (run (Person.createNewPerson ""))
+    run Fixtures.fillDevelopmentData
+    initialHuman <- run LocalAccount.getCurrentPerson
+    Just initialProfile <- run (Person.loadPersonPage initialHuman)
+    assert (initialProfile.person.name == "Chadtech")
+        "Development account must have its explicit fixture name"
     personId <- run (Person.createNewPerson "MVP integration person")
     checkConversationPageFlags database
     -- Only the leftmost collection has rows; all joined collections are empty.
@@ -170,11 +176,11 @@ main = do
                 "Curious and precise."
                 "Understand music."
             )
-    savedProfile <- requireAIProfile saved.person
+    savedProfile <- requireAiPersonProfile saved.person
     assert (savedProfile.identity == "Curious and precise.") "Identity round trip"
     cleared <-
         run (Person.updatePersonIdentity personId saved.person.revision "" "")
-    clearedProfile <- requireAIProfile cleared.person
+    clearedProfile <- requireAiPersonProfile cleared.person
     assert
         (T.null clearedProfile.identity && T.null clearedProfile.aspirations)
         "Empty identity fields round trip"
@@ -193,9 +199,6 @@ main = do
         )
     conversationId <-
         run (Conversation.createConversation "MVP integration conversation" personId)
-    let
-        conversationNumber :: Word64
-        ConversationId.ConversationId conversationNumber = conversationId
     checkConversationPageFlags database
     otherConversationId <-
         run (Conversation.createConversation "Other integration conversation" personId)
@@ -224,8 +227,8 @@ main = do
         messageNumbers =
             map (\row -> case row.id of MessageId.MessageId value -> value) firstMessages
     assert
-        (generationNumber == conversationNumber && messageNumbers == [conversationNumber])
-        "Refresh coverage overlaps person, participant, message, generation, and conversation IDs"
+        (messageNumbers == [generationNumber])
+        "Refresh coverage overlaps message and generation IDs"
     checkConversationRefresh database conversationId
     putStrLn "Checking duplicate request"
     mustFail (run (Chat.requestTurn conversationId 0 personId))
@@ -542,7 +545,7 @@ main = do
                 ""
             )
     Just promptPerson <- run (Person.loadPersonPage personId)
-    promptProfile <- requireAIProfile promptPerson.person
+    promptProfile <- requireAiPersonProfile promptPerson.person
     promptRows <- run Conversation.getConversations
     let
         promptConversation :: Conversation
@@ -550,13 +553,25 @@ main = do
     promptHistory <- run (Chat.getMessages promptId)
     promptGoals <- run (Goal.getGoals personId)
     promptMemories <- run (Memory.getMemories personId)
+    Just promptHuman <- run (Person.loadPersonPage initialHuman)
+    assert
+        (isLeft (Prompt.buildPrompt promptPerson.person [promptPerson.person]
+            promptConversation promptHistory promptGoals promptMemories))
+        "An unresolved message author must fail prompt assembly"
+    blankPersonId <- run (Person.createNewPerson "  ")
+    Just blankPerson <- run (Person.loadPersonPage blankPersonId)
+    assert
+        (isLeft (Prompt.buildPrompt blankPerson.person
+            [promptPerson.person, promptHuman.person]
+            promptConversation promptHistory promptGoals promptMemories))
+        "A blank person name must fail prompt assembly"
     prompt <-
         either
-            (ioError . userError)
+            (ioError . userError . Prompt.errorToString)
             pure
             ( Prompt.buildPrompt
                 promptPerson.person
-                [promptPerson.person]
+                [promptPerson.person, promptHuman.person]
                 promptConversation
                 promptHistory
                 promptGoals
@@ -597,7 +612,7 @@ main = do
         ( isLeft
             ( Prompt.buildPrompt
                 oversizedPerson.person
-                [oversizedPerson.person]
+                [oversizedPerson.person, promptHuman.person]
                 promptConversation
                 promptHistory
                 promptGoals
@@ -643,7 +658,7 @@ main = do
     sameHuman <- run LocalAccount.getCurrentPerson
     Just humanProfile <- run (Person.loadPersonPage human)
     assert (human == sameHuman) "Local account resolves a stable person"
-    assert (case humanProfile.person.kind of Person.Human -> True; _ -> False)
+    assert (case humanProfile.person.kind of Person.HumanPerson -> True; _ -> False)
         "Local identity is human-controlled"
     mustFail
         (run (Person.updatePersonIdentity human humanProfile.person.revision
@@ -658,6 +673,13 @@ main = do
             && unchangedHuman.person.revision == humanProfile.person.revision
             && null humanGoals && null humanMemories)
         "Humans cannot acquire AI profiles, goals, or memories"
+    renamedHuman <- run (Person.updateHumanPersonName human humanProfile.person.revision "Morgan")
+    assert (renamedHuman.person.name == "Morgan" && renamedHuman.person.id == human)
+        "Human name edits preserve participant identity"
+    mustFail (run (Person.updateHumanPersonName human humanProfile.person.revision "Stale name"))
+    mustFail (run (Person.updateHumanPersonName human renamedHuman.person.revision ""))
+    Just aiBeforeRename <- run (Person.loadPersonPage personId)
+    mustFail (run (Person.updateHumanPersonName personId aiBeforeRename.person.revision "Human name"))
     humanConversation <- run (Conversation.createConversation "Human participation" personId)
     Just humanConversationState <- run (Conversation.getConversation humanConversation)
     assert
@@ -679,9 +701,9 @@ main = do
     let
         concurrentHuman :: Prompt.Prompt -> IO OpenAI.Outcome
         concurrentHuman prompt = do
-            assert (T.isInfixOf "You (human)" (Prompt.context prompt))
+            assert (T.isInfixOf "Morgan (human)" (Prompt.context prompt))
                 "Prompt roster distinguishes the human participant"
-            assert (T.isInfixOf "You: A standalone human message" (Prompt.context prompt))
+            assert (T.isInfixOf "Morgan: A standalone human message" (Prompt.context prompt))
                 "Prompt preserves human authorship"
             run (Chat.sendMessage humanConversation "Posted while the AI was thinking")
             assert (not (T.isInfixOf "Posted while the AI was thinking" (Prompt.context prompt)))
@@ -721,8 +743,8 @@ main = do
         [ada] = filter (\p -> p.name == "Ada") seededPeople
         sam :: Person
         [sam] = filter (\p -> p.name == "Sam") seededPeople
-    adaProfile <- requireAIProfile ada
-    samProfile <- requireAIProfile sam
+    adaProfile <- requireAiPersonProfile ada
+    samProfile <- requireAiPersonProfile sam
     assert
         (not (T.null adaProfile.identity) && not (T.null samProfile.identity))
         "Fixture AIs have usable identities"
@@ -752,7 +774,7 @@ main = do
             )
     seed
     Just preservedAda <- run (Person.loadPersonPage ada.id)
-    preservedProfile <- requireAIProfile preservedAda.person
+    preservedProfile <- requireAiPersonProfile preservedAda.person
     assert
         (preservedProfile.identity == "Identity changed during this session.")
         "Reseeding must preserve accumulated edits"

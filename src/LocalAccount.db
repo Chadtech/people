@@ -6,7 +6,7 @@ database module LocalAccount exposing
 
 import AccountId exposing (AccountId(..))
 import Cookies exposing (Cookies)
-import Person
+import Person exposing (Person)
 import PersonId exposing (PersonId)
 import Rows as R
 import Security
@@ -37,19 +37,20 @@ currentPerson _ =
     in
     case existing of
         Just personId ->
-            Transaction.succeed personId
+            let
+                person : Person
+                person :=
+                    Person.requirePerson personId
+            in
+            case person.kind of
+                Person.HumanPerson ->
+                    Transaction.succeed personId
+
+                Person.AiPerson _ ->
+                    Transaction.fail
 
         Nothing ->
-            let
-                personId : PersonId
-                personId :=
-                    Person.createHuman "You"
-
-                () :=
-                    Table.insert accounts Security.Unrestricted
-                        { id = AccountId 1, personId = personId }
-            in
-            Transaction.succeed personId
+            Transaction.fail
 
 
 getCurrentPerson : Cookies -> Transaction PersonId

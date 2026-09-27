@@ -1,0 +1,7 @@
+database module AiPersonProfile exposing (AiPersonProfile)
+
+
+type alias AiPersonProfile =
+    { identity : String
+    , aspirations : String
+    }

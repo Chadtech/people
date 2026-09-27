@@ -1,5 +1,6 @@
 module Main exposing (main)
 
+import AiPersonPage
 import AllConversations
 import AllPersons
 import Browser
@@ -14,10 +15,10 @@ import Document exposing (Document)
 import Effect as E exposing (Eff)
 import Html.Styled as H
 import Html.Styled.Attributes as A
+import HumanPersonPage
 import NewPerson
 import Person exposing (PersonPageFlags)
 import PersonId exposing (PersonId)
-import PersonPage
 import Remote exposing (Remote)
 import Route exposing (Route)
 import Shared
@@ -31,7 +32,8 @@ type Page
     | Conversation ConversationPage.Model
     | AllPersons AllPersons.Model
     | NewPerson NewPerson.Model
-    | Person PersonPage.Model
+    | HumanPerson HumanPersonPage.Model
+    | AiPerson AiPersonPage.Model
     | Loading Shared.Model LoadTarget
     | LoadFailed Shared.Model
     | PageNotFound Shared.Model
@@ -49,7 +51,8 @@ type Msg
     | ChangesRoute (Maybe Route)
     | AllPersonsMsg AllPersons.Msg
     | NewPersonMsg NewPerson.Msg
-    | PersonMsg PersonPage.Msg
+    | HumanPersonMsg HumanPersonPage.Msg
+    | AiPersonMsg AiPersonPage.Msg
     | AllConversationsMsg AllConversations.Msg
     | ConversationMsg ConversationId ConversationPage.Msg
     | AllConversationsResponseReceived (Maybe AllConversations.Flags)
@@ -104,8 +107,11 @@ getShared page =
         NewPerson newPersonModel ->
             NewPerson.shared newPersonModel
 
-        Person personModel ->
-            PersonPage.shared personModel
+        HumanPerson model ->
+            HumanPersonPage.shared model
+
+        AiPerson model ->
+            AiPersonPage.shared model
 
         Loading sharedModel _ ->
             sharedModel
@@ -132,8 +138,11 @@ setShared sharedModel page =
         NewPerson newPersonModel ->
             NewPerson (NewPerson.setShared sharedModel newPersonModel)
 
-        Person personModel ->
-            Person (PersonPage.setShared sharedModel personModel)
+        HumanPerson model ->
+            HumanPerson (HumanPersonPage.setShared sharedModel model)
+
+        AiPerson model ->
+            AiPerson (AiPersonPage.setShared sharedModel model)
 
         Loading _ target ->
             Loading sharedModel target
@@ -267,12 +276,22 @@ update msg page =
                 _ ->
                     ( page, E.none )
 
-        PersonMsg personMsg ->
+        HumanPersonMsg humanPersonMsg ->
             case page of
-                Person personModel ->
-                    PersonPage.update personMsg personModel
-                        |> Tuple.mapFirst Person
-                        |> Tuple.mapSecond (E.map PersonMsg)
+                HumanPerson model ->
+                    HumanPersonPage.update humanPersonMsg model
+                        |> Tuple.mapFirst HumanPerson
+                        |> Tuple.mapSecond (E.map HumanPersonMsg)
+
+                _ ->
+                    ( page, E.none )
+
+        AiPersonMsg aiPersonMsg ->
+            case page of
+                AiPerson model ->
+                    AiPersonPage.update aiPersonMsg model
+                        |> Tuple.mapFirst AiPerson
+                        |> Tuple.mapSecond (E.map AiPersonMsg)
 
                 _ ->
                     ( page, E.none )
@@ -323,9 +342,16 @@ update msg page =
                     else
                         case maybePersonPageFlags of
                             Remote.Found flags ->
-                                PersonPage.init sharedModel flags
-                                    |> Tuple.mapFirst Person
-                                    |> Tuple.mapSecond (E.map PersonMsg)
+                                case flags.person.kind of
+                                    Person.HumanPerson ->
+                                        ( HumanPerson (HumanPersonPage.init sharedModel flags.person)
+                                        , E.none
+                                        )
+
+                                    Person.AiPerson profile ->
+                                        AiPersonPage.init sharedModel flags.person profile
+                                            |> Tuple.mapFirst AiPerson
+                                            |> Tuple.mapSecond (E.map AiPersonMsg)
 
                             Remote.Failed ->
                                 ( LoadFailed sharedModel, E.none )
@@ -385,9 +411,13 @@ pageDocument page =
             NewPerson.document newPersonModel
                 |> Document.map NewPersonMsg
 
-        Person personModel ->
-            PersonPage.document personModel
-                |> Document.map PersonMsg
+        HumanPerson model ->
+            HumanPersonPage.document model
+                |> Document.map HumanPersonMsg
+
+        AiPerson model ->
+            AiPersonPage.document model
+                |> Document.map AiPersonMsg
 
         Loading _ _ ->
             { title = "Loading"

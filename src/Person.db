@@ -3,16 +3,17 @@ database module Person exposing
     , Person
     , PersonPageFlags
     , allPersons
-    , createHuman
-    , requireAI
+    , createHumanPerson
+    , requireAiPerson
     , requirePerson
     , endpoint createNewPerson
     , endpoint getAllPersons
     , endpoint loadPersonPage
+    , endpoint updateHumanPersonName
     , endpoint updatePersonIdentity
     )
 
-import AIProfile exposing (AIProfile)
+import AiPersonProfile exposing (AiPersonProfile)
 import Cookies exposing (Cookies)
 import PersonId exposing (PersonId)
 import Revision exposing (Revision(..))
@@ -24,8 +25,8 @@ import Table exposing (Table)
 
 
 type Kind
-    = Human
-    | AI AIProfile
+    = HumanPerson
+    | AiPerson AiPersonProfile
 
 
 type alias Person =
@@ -58,31 +59,69 @@ personIds :=
 
 createNewPerson : Cookies -> String -> Transaction PersonId
 createNewPerson _ name =
-    createPerson (AI { identity = "", aspirations = "" }) name
+    createPerson (AiPerson { identity = "", aspirations = "" }) name
 
 
-createHuman : String -> Transaction PersonId
-createHuman name =
-    createPerson Human name
+createHumanPerson : String -> Transaction PersonId
+createHumanPerson name =
+    createPerson HumanPerson name
 
 
 createPerson : Kind -> String -> Transaction PersonId
 createPerson kind name =
-    let
-        id : PersonId
-        id :=
-            Seq.next personIds
+    if name == "" then
+        Transaction.fail
 
-        () :=
-            Table.insert people
-                Security.Unrestricted
-                { id = id
-                , kind = kind
-                , name = name
-                , revision = Revision 0
-                }
+    else
+        let
+            id : PersonId
+            id :=
+                Seq.next personIds
+
+            () :=
+                Table.insert people
+                    Security.Unrestricted
+                    { id = id
+                    , kind = kind
+                    , name = name
+                    , revision = Revision 0
+                    }
+        in
+        Transaction.succeed id
+
+
+updateHumanPersonName : Cookies -> PersonId -> Revision -> String -> Transaction PersonPageFlags
+updateHumanPersonName _ personId expectedRevision name =
+    let
+        person : Person
+        person :=
+            requirePerson personId
     in
-    Transaction.succeed id
+    case person.kind of
+        HumanPerson ->
+            if name == "" then
+                Transaction.fail
+
+            else
+                let
+                    () :=
+                        Store.update people
+                            (\row -> row.id == personId && row.revision == expectedRevision)
+                            (\row ->
+                                { row
+                                    | name = name
+                                    , revision = Revision.nextRevision row.revision
+                                }
+                            )
+
+                    savedPerson : Person
+                    savedPerson :=
+                        requirePerson personId
+                in
+                Transaction.succeed { person = savedPerson }
+
+        AiPerson _ ->
+            Transaction.fail
 
 
 updatePersonIdentity :
@@ -95,14 +134,14 @@ updatePersonIdentity :
 updatePersonIdentity _ personId expectedRevision identity aspirations =
     let
         () :=
-            requireAI personId
+            requireAiPerson personId
 
         () :=
             Store.update people
                 (\person -> person.id == personId && person.revision == expectedRevision)
                 (\person ->
                     { person
-                        | kind = AI { identity = identity, aspirations = aspirations }
+                        | kind = AiPerson { identity = identity, aspirations = aspirations }
                         , revision = Revision.nextRevision person.revision
                     }
                 )
@@ -146,16 +185,16 @@ requirePerson personId =
         (\person -> person.id == personId)
 
 
-requireAI : PersonId -> Transaction ()
-requireAI personId =
+requireAiPerson : PersonId -> Transaction ()
+requireAiPerson personId =
     let
         person : Person
         person :=
             requirePerson personId
     in
     case person.kind of
-        AI _ ->
+        AiPerson _ ->
             Transaction.succeed ()
 
-        Human ->
+        HumanPerson ->
             Transaction.fail

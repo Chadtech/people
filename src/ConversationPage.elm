@@ -30,6 +30,7 @@ import Html.Styled.Attributes as A
 import Html.Styled.Events as Ev
 import IntervalSeconds
 import IntervalSeconds.Util as IntervalSecondsUtil
+import List.Util as ListUtil
 import MessageContent
 import MessageContent.Util as MessageContentUtil
 import MessageId.Util as MessageIdUtil
@@ -62,9 +63,9 @@ type alias Model =
     , conversation : Conversation
     , currentPerson : PersonId
     , people : List Person
-    , messages : List Chat.Message
-    , participants : List PersonId
-    , noteHistory : Maybe (List Chat.NoteRevision)
+    , messages : List (Attributed Message)
+    , participants : List Person
+    , noteHistory : Maybe (List (Attributed Chat.NoteRevision))
     , prompts : Dict String String
     , loadingPrompts : Set String
     , loadingNotes : Bool
@@ -74,6 +75,12 @@ type alias Model =
     , speakerError : Maybe SpeakerError
     , pending : Bool
     , error : Maybe Error
+    }
+
+
+type alias Attributed a =
+    { value : a
+    , author : Person
     }
 
 
@@ -90,10 +97,10 @@ type Error
 
 
 type SpeakerError
-    = AISpeakerRequired
+    = AiPersonSpeakerRequired
     | SpeakerNotParticipant
     | SpeakerSelectionRequired
-    | MyselfRequired
+    | HumanPersonSpeakerRequired
 
 
 type Msg
@@ -126,8 +133,8 @@ type alias Flags =
     { conversation : Conversation
     , currentPerson : PersonId
     , people : List Person
-    , messages : List Message
-    , participants : List PersonId
+    , messages : List (Attributed Message)
+    , participants : List Person
     , generations : List GenerationSummary
     }
 
@@ -207,6 +214,30 @@ setShared value model =
 ----------------------------------------------------------------
 
 
+resolvePerson : List Person -> PersonId -> Maybe Person
+resolvePerson people personId =
+    case ListUtil.findUnique (\person -> person.id == personId) people of
+        Just person ->
+            if String.isEmpty (String.trim person.name) then
+                Nothing
+
+            else
+                Just person
+
+        _ ->
+            Nothing
+
+
+resolveAll : (a -> Maybe b) -> List a -> Maybe (List b)
+resolveAll resolve =
+    List.foldr (\value -> Maybe.map2 (::) (resolve value)) (Just [])
+
+
+resolveAuthors : List Person -> List { a | author : PersonId } -> Maybe (List (Attributed { a | author : PersonId }))
+resolveAuthors people =
+    resolveAll (\value -> Maybe.map (Attributed value) (resolvePerson people value.author))
+
+
 refresh : ConversationId -> Eff Msg
 refresh conversationId =
     E.attempt (PageFlagsResponseReceived << flagsFromResponse)
@@ -235,17 +266,37 @@ flagsFromResponse result =
             in
             case ( flags.conversation, flags.currentPerson ) of
                 ( Just conversation, Just currentPerson ) ->
-                    Remote.Found
-                        { conversation = conversation
-                        , currentPerson = currentPerson
-                        , people = flags.people
-                        , messages = flags.messages
-                        , participants = flags.participants
-                        , generations = flags.generations
-                        }
+                    let
+                        resolved : Maybe Flags
+                        resolved =
+                            Maybe.map3
+                                (\_ messages participants ->
+                                    { conversation = conversation
+                                    , currentPerson = currentPerson
+                                    , people = flags.people
+                                    , messages = messages
+                                    , participants = participants
+                                    , generations = flags.generations
+                                    }
+                                )
+                                (resolveAll (resolvePerson flags.people)
+                                    (currentPerson :: List.map .id flags.people)
+                                )
+                                (resolveAuthors flags.people flags.messages)
+                                (resolveAll (resolvePerson flags.people) flags.participants)
+                    in
+                    case resolved of
+                        Just validFlags ->
+                            Remote.Found validFlags
 
-                _ ->
+                        Nothing ->
+                            Remote.Failed
+
+                ( Nothing, _ ) ->
                     Remote.NotFound
+
+                ( Just _, Nothing ) ->
+                    Remote.Failed
 
 
 mutateConversation :
@@ -266,7 +317,7 @@ errorToString : Error -> String
 errorToString error =
     case error of
         ConversationRefreshFailed ->
-            "Could not refresh the conversation. Check the connection."
+            "Could not refresh the conversation. Check the connection and person records."
 
         ConversationUnavailable ->
             "This conversation is no longer available. Return to All conversations."
@@ -296,7 +347,7 @@ errorToString error =
 speakerErrorToString : SpeakerError -> String
 speakerErrorToString error =
     case error of
-        AISpeakerRequired ->
+        AiPersonSpeakerRequired ->
             "Choose an AI person to request a reply."
 
         SpeakerNotParticipant ->
@@ -305,8 +356,8 @@ speakerErrorToString error =
         SpeakerSelectionRequired ->
             "Choose who should reply from the Person menu above, then try again."
 
-        MyselfRequired ->
-            "Choose Myself to send your message."
+        HumanPersonSpeakerRequired ->
+            "Choose the human profile in the Person menu to send a message."
 
 
 setError : Error -> Model -> Model
@@ -345,12 +396,12 @@ requestTurn model =
             if model.pending || model.conversation.activeGeneration /= Nothing then
                 ( model, E.none )
 
-            else if not (List.any (\p -> p.id == speaker && isAI p) model.people) then
+            else if not (List.any (\p -> p.id == speaker && isAiPerson p) model.people) then
                 model
-                    |> setSpeakerError AISpeakerRequired
+                    |> setSpeakerError AiPersonSpeakerRequired
                     |> E.withOut
 
-            else if not (List.member speaker model.participants) then
+            else if not (List.any (\person -> person.id == speaker) model.participants) then
                 model
                     |> setSpeakerError SpeakerNotParticipant
                     |> E.withOut
@@ -401,15 +452,29 @@ update msg model =
                         |> E.withOut
 
                 Remote.Found flags ->
-                    ( { model
-                        | conversation = flags.conversation
-                        , people = flags.people
-                        , messages = flags.messages
-                        , participants = flags.participants
-                        , generations = flags.generations
-                      }
-                    , E.none
-                    )
+                    let
+                        refreshedHistory : Maybe (List (Attributed Chat.NoteRevision))
+                        refreshedHistory =
+                            model.noteHistory
+                                |> Maybe.andThen
+                                    (List.map .value >> resolveAuthors flags.people)
+
+                        refreshedModel : Model
+                        refreshedModel =
+                            { model
+                                | conversation = flags.conversation
+                                , people = flags.people
+                                , messages = flags.messages
+                                , participants = flags.participants
+                                , generations = flags.generations
+                                , noteHistory = refreshedHistory
+                            }
+                    in
+                    if model.noteHistory /= Nothing && refreshedHistory == Nothing then
+                        ( refreshedModel |> setError NoteHistoryLoadFailed, E.none )
+
+                    else
+                        ( refreshedModel, E.none )
 
         PromptInspectionClicked generationId ->
             if Set.member (GenerationIdUtil.toString generationId) model.loadingPrompts then
@@ -472,24 +537,17 @@ update msg model =
                 )
 
         NoteHistoryResponseReceived result ->
-            ( { model
-                | loadingNotes = False
-                , noteHistory =
-                    case result of
-                        Just revisions ->
-                            Just revisions
+            case Maybe.andThen (resolveAuthors model.people) result of
+                Just revisions ->
+                    ( { model | loadingNotes = False, noteHistory = Just revisions }
+                    , E.none
+                    )
 
-                        Nothing ->
-                            model.noteHistory
-              }
-                |> (if result == Nothing then
-                        setError NoteHistoryLoadFailed
-
-                    else
-                        identity
-                   )
-            , E.none
-            )
+                Nothing ->
+                    ( { model | loadingNotes = False }
+                        |> setError NoteHistoryLoadFailed
+                    , E.none
+                    )
 
         DraftInputChanged value ->
             ( { model | draft = value }, E.none )
@@ -515,7 +573,7 @@ update msg model =
 
             else
                 model
-                    |> setSpeakerError MyselfRequired
+                    |> setSpeakerError HumanPersonSpeakerRequired
                     |> E.withOut
 
         ReplyButtonClicked ->
@@ -668,19 +726,19 @@ conversationView model conversation =
         messages : Html Msg
         messages =
             let
-                messageView : Chat.Message -> Html Msg
+                messageView : Attributed Message -> Html Msg
                 messageView message =
                     H.section [ A.css [ S.col, S.g2 ] ]
                         [ H.h3 [ A.css [ S.textGray3 ] ]
                             [ H.text
-                                (personName model message.author)
+                                message.author.name
                             ]
-                        , pre (MessageContentUtil.toString message.content)
+                        , pre (MessageContentUtil.toString message.value.content)
                         ]
             in
             H.div [ A.css [ S.col, S.g3 ] ]
                 (model.messages
-                    |> List.sortBy (\m -> String.padLeft 20 '0' (MessageIdUtil.toString m.id))
+                    |> List.sortBy (\m -> String.padLeft 20 '0' (MessageIdUtil.toString m.value.id))
                     |> List.map messageView
                 )
 
@@ -713,7 +771,7 @@ conversationView model conversation =
                         [ A.value (PersonIdUtil.toString p.id)
                         , A.selected (model.speaker == PersonIdUtil.toString p.id)
                         ]
-                        [ H.text (speakerName model p) ]
+                        [ H.text p.name ]
             in
             H.label [ A.css [ S.col, S.g2 ] ]
                 [ H.text "Person"
@@ -730,7 +788,7 @@ conversationView model conversation =
                         ]
                         [ H.text "Choose a person" ]
                         :: List.map personOption
-                            (List.filter (\p -> p.id == model.currentPerson || isAI p) model.people)
+                            (List.filter (\p -> p.id == model.currentPerson || isAiPerson p) model.people)
                     )
                 ]
     in
@@ -748,7 +806,7 @@ conversationView model conversation =
         , H.p []
             [ H.text
                 ("Participants: "
-                    ++ String.join ", " (List.map (personName model) model.participants)
+                    ++ String.join ", " (List.map .name model.participants)
                 )
             ]
         , H.p [ A.attribute "role" "status" ] [ H.text autonomyStatus ]
@@ -760,6 +818,9 @@ conversationView model conversation =
             , Button.secondary "Add participant" AddParticipantButtonClicked
                 |> Button.toHtml
             ]
+        , H.a
+            [ Route.href (Route.Person model.currentPerson), A.css [ S.link ] ]
+            [ H.text "Edit human profile" ]
         , messages
         , composerView model conversation
         , sharedNote
@@ -873,18 +934,18 @@ noteHistoryView model =
         history : Html Msg
         history =
             let
-                revisionView : Chat.NoteRevision -> Html Msg
+                revisionView : Attributed Chat.NoteRevision -> Html Msg
                 revisionView revision =
                     H.details [ A.css [ S.col, S.g2 ] ]
                         [ H.summary []
                             [ H.text
                                 ("Turn "
-                                    ++ GenerationIdUtil.toString revision.generationId
+                                    ++ GenerationIdUtil.toString revision.value.generationId
                                     ++ " — "
-                                    ++ personName model revision.author
+                                    ++ revision.author.name
                                 )
                             ]
-                        , pre (NoteUtil.toString revision.content)
+                        , pre (NoteUtil.toString revision.value.content)
                         ]
             in
             case model.noteHistory of
@@ -901,7 +962,7 @@ noteHistoryView model =
                                 (\revision ->
                                     String.padLeft 20
                                         '0'
-                                        (GenerationIdUtil.toString revision.generationId)
+                                        (GenerationIdUtil.toString revision.value.generationId)
                                 )
                             |> List.reverse
                             |> List.map revisionView
@@ -916,24 +977,6 @@ noteHistoryView model =
             [ Button.secondary loadLabel NoteHistoryClicked |> Button.toHtml ]
         , history
         ]
-
-
-personName : Model -> PersonId -> String
-personName model id =
-    model.people
-        |> List.filter (\p -> p.id == id)
-        |> List.head
-        |> Maybe.map .name
-        |> Maybe.withDefault "Unknown person"
-
-
-speakerName : Model -> Person -> String
-speakerName model person =
-    if person.id == model.currentPerson then
-        "Myself"
-
-    else
-        person.name
 
 
 pre : String -> Html msg
@@ -1018,11 +1061,11 @@ subscriptions =
     Time.every 1500 (\_ -> TickReceived)
 
 
-isAI : Person -> Bool
-isAI person =
+isAiPerson : Person -> Bool
+isAiPerson person =
     case person.kind of
-        Person.AI _ ->
+        Person.AiPerson _ ->
             True
 
-        Person.Human ->
+        Person.HumanPerson ->
             False

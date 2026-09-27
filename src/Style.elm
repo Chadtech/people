@@ -90,6 +90,7 @@ module Style exposing
     , inlineCol
     , inlineRow
     , itemsCenter
+    , itemsStart
     , justifyCenter
     , justifyEnd
     , justifySpaceAround
@@ -1085,6 +1086,11 @@ justifySpaceBetween =
 justifySpaceAround : Css.Style
 justifySpaceAround =
     Css.justifyContent Css.spaceAround
+
+
+itemsStart : Css.Style
+itemsStart =
+    Css.alignItems Css.flexStart
 
 
 itemsCenter : Css.Style

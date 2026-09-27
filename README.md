@@ -67,15 +67,18 @@ Start the worker (in a separate terminal from `make dev`) with:
 cabal run exe:people-worker -- run http://localhost:9000
 ```
 
-On a conversation page, the Person menu defaults to **Myself**. Type a message
-and choose Send to post as You, without queuing a model call. Select an AI person
+On a conversation page, the Person menu defaults to the local human person
+using the saved profile name. Edit human profile opens the name editor; new
+profiles are seeded as Chadtech by the development fixtures. Missing local accounts
+or unresolved message authors fail instead of receiving placeholder names. Type a message and choose Send to post under
+that name, without queuing a model call. Select an AI person
 and choose Let selected person reply to request a response. Switching the selection
 preserves an unsent human draft. You can post while an AI is generating; an
 already-running reply finishes using its saved context. Autonomy, if enabled,
 continues on its existing schedule.
 
-`Person.kind` is `Human | AI AIProfile`: only the AI variant contains identity
-and aspirations. Humans have no empty or optional AI profile fields. Human
+`Person.kind` is `HumanPerson | AiPerson AiPersonProfile`: only the AI person
+variant contains identity and aspirations. Humans have no empty or optional AI profile fields. Human
 profile pages show common details; AI pages keep their profile, goals, and
 memory editors. The backend rejects AI-profile updates, goals, and memories
 for human people. Every message has an explicit
@@ -207,7 +210,10 @@ note revisions and coordinates atomic turn requests, completion, failure, and
 cancellation across those modules. Their shared backend tables are ordinary
 exports, not client endpoints; the coordinating operations remain transactions.
 `Fixtures.fillDevelopmentData` is the only seeding endpoint and uses one marker.
-The Elm person page is `PersonPage.elm`; goals and memories are part of that page.
+Elm human and AI profiles use independent `HumanPersonPage.elm` and `AiPersonPage.elm`
+modules, selected by `Main` from the loaded person kind. Each owns its model and
+messages; goals and memories belong to `AiPersonPage`. `View.PersonProfile` shares only
+the presentation of common person details.
 
 IDs and values such as notes, message content, revisions, and intervals have
 distinct custom types. Haskell instances for generated types live in

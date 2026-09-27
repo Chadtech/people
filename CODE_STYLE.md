@@ -1,5 +1,10 @@
 # Code style
 
+## Acronym capitalization
+
+In code identifiers, capitalize only the first letter of acronyms: use `Html`
+and `Ai`, not `HTML` and `AI`.
+
 ## Same-name type imports
 
 In Elm, Acadia, and Haskell, import a type unqualified when its module is named
@@ -75,6 +80,10 @@ to that event changes.
 
 ## Layout and type signatures
 
+Separate page modules into labeled sections such as `-- TYPES --`, `-- INIT --`,
+`-- API --`, `-- UPDATE --`, `-- HELPERS --`, and `-- VIEW --`. Give `init` its own
+section rather than grouping it with the shared-model API.
+
 Prefer short lines (roughly 80 columns) and multiline function calls, records,
 lists, and type signatures. Give every function and named value a type signature,
 including local helpers. Generated bindings follow the generator's format.
@@ -101,6 +110,11 @@ containing definition difficult to read. This applies beyond view code too.
 
 ## Domain types and module boundaries
 
+Use `HumanPerson` and `AiPerson` for person variants and related identifiers,
+including `HumanPersonPage` and `AiPersonPage`, to emphasize their shared person
+identity. Use `msg` (or a page-qualified name such as `humanPersonMsg`) for page
+messages and `...Msg` for their wrappers in `Main`.
+
 Use distinct custom types for every domain ID, following `PersonId`; never use
 raw integers or aliases for IDs. Wrap domain values that can be confused at an
 API boundary, such as message content, notes, revisions, and time intervals.
@@ -110,10 +124,13 @@ Use `Maybe String` for optional page errors instead of an empty-string sentinel.
 
 Database modules own independent concepts: `Person`, `Goal`, and `Memory`.
 Shared provenance lives in `Origin`, so goals and memories need not depend on
-each other. `PersonPage.elm` owns its goals and memories section directly; avoid
-separate model/update/message modules for ordinary page subsections. Keep one
-`Msg` type and attach the originating ID to asynchronous responses that may
-arrive after navigation. When `Main` tags page messages with that ID and checks
+each other. Human and AI profiles are separate pages (`HumanPersonPage.elm` and
+`AiPersonPage.elm`), each with its own model, `Msg`, and update function. `Main` chooses
+the page from `Person.kind` when the person loads. Share only stateless
+presentation for common person details. `AiPersonPage.elm` owns its goals and memories
+section directly; avoid separate model/update/message modules for ordinary page
+subsections. Keep one `Msg` type per page and attach the originating ID to
+asynchronous responses that may arrive after navigation. When `Main` tags page messages with that ID and checks
 it before dispatching to the page, keep the guard there; page messages do not
 need to repeat the ID or its check.
 

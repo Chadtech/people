@@ -67,7 +67,7 @@ insertGoal : PersonId -> GoalDescription -> Origin -> Transaction ()
 insertGoal personId description source =
     let
         () :=
-            Person.requireAI personId
+            Person.requireAiPerson personId
 
         id : GoalId
         id :=

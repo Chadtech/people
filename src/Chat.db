@@ -299,7 +299,7 @@ requestTurn _ conversationId expectedRevision speaker =
             Seq.next Generation.generationIds
 
         () :=
-            Person.requireAI speaker
+            Person.requireAiPerson speaker
 
         () :=
             Store.ensure Conversation.participants

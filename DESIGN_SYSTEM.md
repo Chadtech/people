@@ -158,9 +158,15 @@ initialization; the backend remembers whether the data has already been filled. 
 After creating a person, show a success message with a `Route.href` link to the
 saved person so the user can choose when to open it.
 
-Person pages follow the human/AI distinction in the data model. Human pages
-show common identity details only; AI pages own the Identity, Aspirations,
+Person pages follow the human/AI distinction in the data model. `Main` chooses
+independent `HumanPersonPage` and `AiPersonPage` modules when the person loads. Each owns its
+model, message type, and update logic; common person details use a stateless view.
+Human pages
+show common identity details and an editable name; AI pages own the Identity, Aspirations,
 goals, and memory editors. Do not render disabled or empty AI fields for humans.
+Human and AI profile save feedback uses custom status types; AI goals and memories
+have a separate `MindStatus` type. Derive display text from these states.
+The human profile saving state also disables the form.
 
 AI goals and memories share the existing panel surface. A borderless native
 fieldset disables related controls while saving. Keep human-entered records and
@@ -181,12 +187,17 @@ empty result. Main owns initial loading and failure states. All route loads shar
 view and one failure view, without retry controls. Loading state retains the
 resource ID, or the pending `Maybe Route` during development-data initialization.
 
-Conversation's Person menu defaults to **Myself**, the current local human.
-Myself shows the message composer and Send; an AI selection shows the reply
-request action. Switching people preserves an unsent human draft. Sending a
-human message does not itself request a reply and remains available during an
-AI turn. Automatic runs select only AI participants. The transcript labels the
-local human as You; human identity never becomes an automated speaker.
+Conversation's Person menu defaults to the current local human and displays
+actual profile names for every participant. The human selection shows the message
+composer and Send; an AI selection shows the reply request action. Switching
+people preserves an unsent human draft. Sending a human message does not itself
+request a reply and remains available during an AI turn. Automatic runs select
+only AI participants. Human profiles have editable names used in transcripts and
+future prompts, with an Edit human profile link in conversations. Development fixtures create the local
+human as Chadtech. Missing accounts or unresolved person references are errors;
+never substitute placeholder names. Resolve authors before accepting conversation
+or note-history data, and before assembling AI prompts. Avoid viewer-relative
+participant names such as You or Myself. Saved prompt snapshots retain their original text.
 
 Conversation speaker validation appears beside the composer actions and names the
 Person menu needed to recover. Associate feedback with that selector, announce
@@ -251,9 +262,15 @@ experiment into an established preference or expand a small task into a redesign
 
 | Date | Status | Decision and reason |
 | --- | --- | --- |
+| 2026-09-27 | Established | AI identity and goals/memory feedback use custom status types instead of strings, with text derived in the view. |
+| 2026-09-27 | Established | Missing person references fail at data boundaries instead of displaying placeholder names. Development fixtures explicitly seed Chadtech as the local human. |
+| 2026-09-27 | Established | Human profile save states use a custom type to keep form availability and feedback consistent. Profile layout uses shared Style helpers. |
+| 2026-09-27 | Established | Name both person forms explicitly: `HumanPerson` and `AiPerson`, including their page modules and message wrappers. |
+| 2026-09-27 | Established | Human and AI profiles are separate pages selected by Main, with independent models and messages. Share common presentation without sharing page behavior. |
+| 2026-09-27 | Established | Human names are editable on their profiles and used consistently in speaker menus, transcripts, and future prompts; replace viewer-relative naming with participant identity. |
 | 2026-09-26 | Established | Conversation pages use shared `Style` utilities for border resets, list markers, and text wrapping instead of inline CSS primitives. |
 | 2026-09-26 | Established | Human profiles have only common person details. AI-only profile fields and editors belong exclusively to the AI variant, rather than using empty fields for humans. |
-| 2026-09-26 | Established | Add Myself as the default conversation speaker. Separate human Send from AI reply requests, retain drafts across selection changes, and allow human posting during generation. |
+| 2026-09-26 | Superseded | Add Myself as the default conversation speaker. Separate human Send from AI reply requests, retain drafts across selection changes, and allow human posting during generation. |
 | 2026-09-26 | Established | Show missing or ineligible reply-person feedback beside Send, with an accessible alert and selector association; preserve the draft and clear feedback on selection changes. Errors below history were easy to miss. |
 | 2026-09-13 | Established | Main shares loading and failure views and removes route retry controls. Development-data loading retains the pending route and follows the latest navigation after initialization. |
 | 2026-09-13 | Established | Main loads AllConversations flags before initialization, keeping required lists in the page model and initial loading and retry in the route. |

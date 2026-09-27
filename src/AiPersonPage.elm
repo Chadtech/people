@@ -1,4 +1,4 @@
-module PersonPage exposing
+module AiPersonPage exposing
     ( Model
     , Msg
     , document
@@ -9,6 +9,7 @@ module PersonPage exposing
     )
 
 import Acadia.Transaction exposing (Transaction)
+import AiPersonProfile exposing (AiPersonProfile)
 import Css
 import Document exposing (Document)
 import Effect as E exposing (Eff)
@@ -28,34 +29,52 @@ import MemoryKeywords.Util as MemoryKeywordsUtil
 import Origin
 import Person exposing (Person, PersonPageFlags)
 import PersonId exposing (PersonId)
-import PersonId.Util as PersonIdUtil
 import Shared
 import Style as S
 import View.Button
+import View.PersonProfile as PersonProfile
 import View.TextField as TextField
 import View.Textarea
 
 
-type Model
-    = HumanPage Shared.Model Person
-    | AIPage AIModel
+
+-----------------------------------------------------------------
+-- TYPES --
+-----------------------------------------------------------------
 
 
-type alias AIModel =
+type alias Model =
     { shared : Shared.Model
     , person : Person
     , identity : String
     , aspirations : String
-    , saving : Bool
-    , status : String
+    , status : Status
     , goals : Maybe (List Goal.Goal)
     , memories : Maybe (List Memory.Memory)
     , goalDraft : String
     , memoryDraft : String
     , keywords : String
     , pending : Bool
-    , mindStatus : String
+    , mindStatus : MindStatus
     }
+
+
+type Status
+    = Idle
+    | Saving
+    | Saved
+    | SaveFailed
+
+
+type MindStatus
+    = MindIdle
+    | MindSaving
+    | MindSaved
+    | GoalsLoadFailed
+    | MemoriesLoadFailed
+    | GoalRequired
+    | MemoryRequired
+    | MindSaveFailed
 
 
 type Msg
@@ -82,68 +101,55 @@ type Mutation
     | UpdatedRecord
 
 
-init : Shared.Model -> PersonPageFlags -> ( Model, Eff Msg )
-init sharedModel flags =
-    case flags.person.kind of
-        Person.Human ->
-            ( HumanPage sharedModel flags.person, E.none )
 
-        Person.AI profile ->
-            ( AIPage
-                { shared = sharedModel
-                , person = flags.person
-                , identity = profile.identity
-                , aspirations = profile.aspirations
-                , saving = False
-                , status = ""
-                , goals = Nothing
-                , memories = Nothing
-                , goalDraft = ""
-                , memoryDraft = ""
-                , keywords = ""
-                , pending = False
-                , mindStatus = ""
-                }
-            , refresh flags.person.id
-            )
+-----------------------------------------------------------------
+-- INIT --
+-----------------------------------------------------------------
+
+
+init : Shared.Model -> Person -> AiPersonProfile -> ( Model, Eff Msg )
+init sharedModel person profile =
+    ( { shared = sharedModel
+      , person = person
+      , identity = profile.identity
+      , aspirations = profile.aspirations
+      , status = Idle
+      , goals = Nothing
+      , memories = Nothing
+      , goalDraft = ""
+      , memoryDraft = ""
+      , keywords = ""
+      , pending = False
+      , mindStatus = MindIdle
+      }
+    , refresh person.id
+    )
+
+
+
+-----------------------------------------------------------------
+-- API --
+-----------------------------------------------------------------
 
 
 shared : Model -> Shared.Model
 shared model =
-    case model of
-        HumanPage sharedModel _ ->
-            sharedModel
-
-        AIPage editor ->
-            editor.shared
+    model.shared
 
 
 setShared : Shared.Model -> Model -> Model
 setShared sharedModel model =
-    case model of
-        HumanPage _ person ->
-            HumanPage sharedModel person
+    { model | shared = sharedModel }
 
-        AIPage editor ->
-            AIPage { editor | shared = sharedModel }
+
+
+-----------------------------------------------------------------
+-- UPDATE --
+-----------------------------------------------------------------
 
 
 update : Msg -> Model -> ( Model, Eff Msg )
 update msg model =
-    case model of
-        HumanPage _ _ ->
-            ( model, E.none )
-
-        AIPage editor ->
-            let
-                ( next, effect ) =
-                    updateAI msg editor
-            in
-            ( AIPage next, effect )
-
-
-updateAI : Msg -> AIModel -> ( AIModel, Eff Msg )
-updateAI msg model =
     case msg of
         IdentityInputChanged value ->
             ( { model | identity = value }, E.none )
@@ -152,11 +158,11 @@ updateAI msg model =
             ( { model | aspirations = value }, E.none )
 
         SaveButtonClicked ->
-            if model.saving then
+            if model.status == Saving then
                 ( model, E.none )
 
             else
-                ( { model | saving = True, status = "Saving…" }
+                ( { model | status = Saving }
                 , E.attempt (IdentityResponseReceived model.person.id)
                     (Person.updatePersonIdentity model.person.id
                         model.person.revision
@@ -174,19 +180,14 @@ updateAI msg model =
                     Just flags ->
                         ( { model
                             | person = flags.person
-                            , saving = False
-                            , status =
-                                "Saved."
+                            , status = Saved
                           }
                         , E.none
                         )
 
                     Nothing ->
                         ( { model
-                            | saving = False
-                            , status =
-                                "Could not save. This person may have changed elsewhere. Your "
-                                    ++ "draft is still here; reload to get the latest saved version."
+                            | status = SaveFailed
                           }
                         , E.none
                         )
@@ -210,14 +211,14 @@ updateAI msg model =
                 ( model, E.none )
 
             else
-                ( { model | mindStatus = "Could not load goals. Try Refresh." }, E.none )
+                ( { model | mindStatus = GoalsLoadFailed }, E.none )
 
         MemoriesResponseReceived personId Nothing ->
             if personId /= model.person.id then
                 ( model, E.none )
 
             else
-                ( { model | mindStatus = "Could not load memories. Try Refresh." }, E.none )
+                ( { model | mindStatus = MemoriesLoadFailed }, E.none )
 
         GoalInputChanged value ->
             ( { model | goalDraft = value }, E.none )
@@ -230,7 +231,7 @@ updateAI msg model =
 
         AddGoalClicked ->
             if String.isEmpty (String.trim model.goalDraft) then
-                ( { model | mindStatus = "Enter a goal first." }, E.none )
+                ( { model | mindStatus = GoalRequired }, E.none )
 
             else
                 mutate AddedGoal
@@ -243,7 +244,7 @@ updateAI msg model =
 
         AddMemoryClicked ->
             if String.isEmpty (String.trim model.memoryDraft) then
-                ( { model | mindStatus = "Enter a memory first." }, E.none )
+                ( { model | mindStatus = MemoryRequired }, E.none )
 
             else
                 mutate AddedMemory
@@ -266,7 +267,7 @@ updateAI msg model =
             else
                 ( { model
                     | pending = False
-                    , mindStatus = "Saved."
+                    , mindStatus = MindSaved
                     , goalDraft =
                         if mutation == AddedGoal then
                             ""
@@ -296,42 +297,65 @@ updateAI msg model =
             else
                 ( { model
                     | pending = False
-                    , mindStatus =
-                        "Could not save. Your draft is still here. Refresh and retry."
+                    , mindStatus = MindSaveFailed
                   }
                 , E.none
                 )
 
         RefreshClicked ->
-            ( { model | mindStatus = "" }, refresh model.person.id )
+            ( { model | mindStatus = MindIdle }, refresh model.person.id )
+
+
+
+-----------------------------------------------------------------
+-- HELPERS --
+-----------------------------------------------------------------
+
+
+refresh : PersonId -> Eff Msg
+refresh personId =
+    E.batch
+        [ E.attempt (GoalsResponseReceived personId) (Goal.getGoals personId)
+        , E.attempt (MemoriesResponseReceived personId) (Memory.getMemories personId)
+        ]
+
+
+mutate : Mutation -> Transaction () -> Model -> ( Model, Eff Msg )
+mutate mutation transaction model =
+    if model.pending then
+        ( model, E.none )
+
+    else
+        ( { model | pending = True, mindStatus = MindSaving }
+        , E.attempt (MutationResponseReceived model.person.id mutation) transaction
+        )
+
+
+
+-----------------------------------------------------------------
+-- VIEW --
+-----------------------------------------------------------------
 
 
 document : Model -> Document Msg
 document model =
-    case model of
-        HumanPage _ person ->
-            { title = person.name
-            , body = [ viewPerson person [] ]
-            }
-
-        AIPage editor ->
-            { title = editor.person.name
-            , body = [ view editor ]
-            }
+    { title = model.person.name
+    , body = [ view model ]
+    }
 
 
-view : AIModel -> Html Msg
+view : Model -> Html Msg
 view model =
     let
         saveLabel : String
         saveLabel =
-            if model.saving then
+            if model.status == Saving then
                 "Saving…"
 
             else
                 "Save identity"
     in
-    viewPerson model.person
+    PersonProfile.view model.person
         [ identityField "Identity"
             "What matters to this person and how they communicate."
             model.identity
@@ -344,58 +368,8 @@ view model =
             saveLabel
             SaveButtonClicked
             |> View.Button.toHtml
-        , H.p [ A.attribute "role" "status" ] [ H.text model.status ]
+        , H.p [ A.attribute "role" "status" ] [ H.text (statusToString model.status) ]
         , mindView model
-        ]
-
-
-viewPerson : Person -> List (Html Msg) -> Html Msg
-viewPerson person controls =
-    H.div
-        [ A.css
-            [ S.minHFullViewport
-            , Css.alignItems Css.flexStart
-            , S.justifyCenter
-            , S.p4
-            , S.row
-            , S.wFull
-            ]
-        ]
-        [ H.article
-            [ A.css
-                [ S.bgGray1
-                , S.col
-                , S.g3
-                , S.outdent
-                , S.p3
-                , S.wFull
-                , S.minW0
-                , Css.property "overflow-wrap" "anywhere"
-                ]
-            ]
-            ([ H.h1
-                [ A.css
-                    [ S.textGray3 ]
-                ]
-                [ H.text person.name ]
-             , H.dl
-                [ A.css
-                    [ S.col, S.g2 ]
-                ]
-                [ detail "Name" person.name
-                , detail "ID" (PersonIdUtil.toString person.id)
-                ]
-             ]
-                ++ controls
-            )
-        ]
-
-
-detail : String -> String -> H.Html msg
-detail label value =
-    H.div [ A.css [ S.g2, S.row, S.flexWrap ] ]
-        [ H.dt [ A.css [ S.textGray3 ] ] [ H.text label ]
-        , H.dd [ A.css [ S.textGray4 ] ] [ H.text value ]
         ]
 
 
@@ -409,26 +383,7 @@ identityField label help value onInput =
         ]
 
 
-refresh : PersonId -> Eff Msg
-refresh personId =
-    E.batch
-        [ E.attempt (GoalsResponseReceived personId) (Goal.getGoals personId)
-        , E.attempt (MemoriesResponseReceived personId) (Memory.getMemories personId)
-        ]
-
-
-mutate : Mutation -> Transaction () -> AIModel -> ( AIModel, Eff Msg )
-mutate mutation transaction model =
-    if model.pending then
-        ( model, E.none )
-
-    else
-        ( { model | pending = True, mindStatus = "Saving…" }
-        , E.attempt (MutationResponseReceived model.person.id mutation) transaction
-        )
-
-
-mindView : AIModel -> Html Msg
+mindView : Model -> Html Msg
 mindView model =
     H.fieldset
         [ A.disabled model.pending
@@ -451,7 +406,7 @@ mindView model =
                 )
             ]
         , button model "Refresh" RefreshClicked
-        , H.p [ A.attribute "role" "status" ] [ H.text model.mindStatus ]
+        , H.p [ A.attribute "role" "status" ] [ H.text (mindStatusToString model.mindStatus) ]
         , H.h2 [ A.css [ S.textGray3 ] ] [ H.text "Goals" ]
         , rows "Loading goals…" "No goals yet." (List.map (goalView model)) model.goals
         , field
@@ -499,7 +454,7 @@ rows loading empty render values =
         )
 
 
-goalView : AIModel -> Goal.Goal -> Html Msg
+goalView : Model -> Goal.Goal -> Html Msg
 goalView model goal =
     H.div [ A.css [ S.col, S.g2 ] ]
         [ H.p [] [ H.text (GoalDescriptionUtil.toString goal.description) ]
@@ -516,7 +471,7 @@ goalView model goal =
         ]
 
 
-memoryView : AIModel -> Memory.Memory -> Html Msg
+memoryView : Model -> Memory.Memory -> Html Msg
 memoryView model memory =
     H.div [ A.css [ S.col, S.g2 ] ]
         [ H.p [] [ H.text (MemoryContentUtil.toString memory.content) ]
@@ -568,7 +523,52 @@ field label input =
     H.label [ A.css [ S.col, S.g2 ] ] [ H.span [] [ H.text label ], input ]
 
 
-button : AIModel -> String -> Msg -> Html Msg
-button model label event =
-    View.Button.secondary label event
+button : Model -> String -> Msg -> Html Msg
+button model label msg =
+    View.Button.secondary label msg
         |> View.Button.toHtml
+
+
+statusToString : Status -> String
+statusToString status =
+    case status of
+        Idle ->
+            ""
+
+        Saving ->
+            "Saving…"
+
+        Saved ->
+            "Saved."
+
+        SaveFailed ->
+            "Could not save. This person may have changed elsewhere. Your "
+                ++ "draft is still here; reload to get the latest saved version."
+
+
+mindStatusToString : MindStatus -> String
+mindStatusToString status =
+    case status of
+        MindIdle ->
+            ""
+
+        MindSaving ->
+            "Saving…"
+
+        MindSaved ->
+            "Saved."
+
+        GoalsLoadFailed ->
+            "Could not load goals. Try Refresh."
+
+        MemoriesLoadFailed ->
+            "Could not load memories. Try Refresh."
+
+        GoalRequired ->
+            "Enter a goal first."
+
+        MemoryRequired ->
+            "Enter a memory first."
+
+        MindSaveFailed ->
+            "Could not save. Your draft is still here. Refresh and retry."

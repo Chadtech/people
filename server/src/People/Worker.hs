@@ -74,7 +74,7 @@ runCycle database requestValue generate =
                 participants :: [PersonId.PersonId]
                 participants =
                     sortOn personNumber
-                        [p.id | p <- people, p.id `elem` members, isAI p]
+                        [p.id | p <- people, p.id `elem` members, isAiPerson p]
             case participants of
                 [] -> run (Chat.stopConversation conversation.id)
                 firstParticipant : _ -> do
@@ -120,7 +120,7 @@ runCycle database requestValue generate =
                     memories <- run (Memory.getMemories person.id)
                     prompt <-
                         either
-                            (ioError . userError)
+                            (ioError . userError . Prompt.errorToString)
                             pure
                             (Prompt.buildPrompt person roster conversation messages goals memories)
                     let
@@ -189,8 +189,8 @@ handleFailure operation =
         putStrLn "Database operation failed; the worker will check again."
 
 
-isAI :: Person -> Bool
-isAI person =
+isAiPerson :: Person -> Bool
+isAiPerson person =
     case person.kind of
-        Person.AI _ -> True
-        Person.Human -> False
+        Person.AiPerson _ -> True
+        Person.HumanPerson -> False
