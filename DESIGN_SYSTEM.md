@@ -97,6 +97,8 @@ Use Tailwind-inspired names for reusable layout utilities: `S.flexWrap` maps
 to `flex-wrap: wrap`. Keep repeated CSS primitives in `Style`. Reuse
 `S.wrapAnywhere` and `S.whitespacePreWrap` for text wrapping, `S.listNone`
 for unmarked lists, and `S.border0` for a zero-border reset.
+Use `S.h75Viewport` for a 75vh height and `S.minH96` for a 24rem minimum
+height, keeping these sizing primitives in `Style` as well.
 Available responsive helpers are `md` at 768px and `lg` at 1156px.
 
 Guidelines:
@@ -191,6 +193,13 @@ empty result. Main owns initial loading and failure states. All route loads shar
 view and one failure view, without retry controls. Loading state retains the
 resource ID, or the pending `Maybe Route` during development-data initialization.
 
+Conversation detail uses a left controls card and a right transcript card at
+wide widths. The transcript scrolls independently, with the human composer and
+Send below it. Keep participant, reply, autonomy, note, and history controls in
+the left column, which can scroll independently when needed. At narrow widths,
+stack the cards, bound the controls height, and retain a bounded, keyboard-focusable
+transcript scroll area.
+
 Conversation's Person menu defaults to the current local human and displays
 actual profile names for every participant. The human selection shows the message
 composer and Send; an AI selection shows the reply request action. Switching
@@ -204,7 +213,7 @@ never substitute placeholder names. Resolve authors before accepting conversatio
 or note-history data, and before assembling AI prompts. Avoid viewer-relative
 participant names such as You or Myself. Saved prompt snapshots retain their original text.
 
-Conversation speaker validation appears beside the composer actions and names the
+Conversation speaker validation appears beside the reply controls and names the
 Person menu needed to recover. Associate feedback with that selector, announce
 it as an alert, preserve the draft, and clear it when the selection changes.
 
@@ -267,6 +276,8 @@ experiment into an established preference or expand a small task into a redesign
 
 | Date | Status | Decision and reason |
 | --- | --- | --- |
+| 2026-09-27 | Established | Conversation transcript height and minimum height use shared `Style` helpers instead of inline `Css` declarations, preserving their existing values. |
+| 2026-09-27 | Established | Separate conversation controls into a left card and the scrollable transcript with composer into a right card, preventing long histories from pushing Send out of reach. Stack cards on narrow screens. |
 | 2026-09-27 | Established | Initialize AI person pages only after goals and memories load successfully; keep initial loading and failure in Main and preserve loaded lists on refresh failure. |
 | 2026-09-27 | Established | Offer single-turn and six-turn automatic runs together, allowing incremental conversation progress. |
 | 2026-09-27 | Established | AI identity and goals/memory feedback use custom status types instead of strings, with text derived in the view. |

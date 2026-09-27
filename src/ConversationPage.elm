@@ -18,6 +18,7 @@ import Chat exposing (ConversationPageFlag, Message)
 import Conversation exposing (Conversation)
 import ConversationId exposing (ConversationId)
 import ConversationTitle.Util as ConversationTitleUtil
+import Css
 import Dict exposing (Dict)
 import Document exposing (Document)
 import Effect as E exposing (Eff)
@@ -676,24 +677,7 @@ view model =
             [ A.css
                 [ S.p4, S.col, S.g3, S.wFull ]
             ]
-            [ H.article
-                [ A.css
-                    [ S.bgGray1
-                    , S.outdent
-                    , S.p3
-                    , S.col
-                    , S.g3
-                    , S.minW0
-                    , S.wFull
-                    ]
-                ]
-                [ H.h1 [ A.css [ S.textGray3 ] ] [ H.text "Conversation" ]
-                , conversationView model model.conversation
-                , H.p
-                    [ A.attribute "role" "status" ]
-                    [ H.text (Maybe.withDefault "" (Maybe.map errorToString model.error)) ]
-                ]
-            ]
+            [ conversationView model model.conversation ]
         ]
     }
 
@@ -736,7 +720,12 @@ conversationView model conversation =
                         , pre (MessageContentUtil.toString message.value.content)
                         ]
             in
-            H.div [ A.css [ S.col, S.g3 ] ]
+            H.div
+                [ A.css [ S.col, S.g3, S.flex1, S.minH0, S.overflowAuto, S.p3, S.indent, S.bgNightwood1 ]
+                , A.tabindex 0
+                , A.attribute "role" "region"
+                , A.attribute "aria-label" "Conversation messages"
+                ]
                 (model.messages
                     |> List.sortBy (\m -> String.padLeft 20 '0' (MessageIdUtil.toString m.value.id))
                     |> List.map messageView
@@ -791,46 +780,124 @@ conversationView model conversation =
                             (List.filter (\p -> p.id == model.currentPerson || isAiPerson p) model.people)
                     )
                 ]
+
+        controls : Html Msg
+        controls =
+            H.section
+                [ A.css
+                    [ S.col
+                    , S.g3
+                    , S.p3
+                    , S.bgGray1
+                    , S.outdent
+                    , S.minW0
+                    , S.wrapAnywhere
+                    , S.overflowAuto
+                    , Css.maxHeight (Css.vh 60)
+                    , S.lg [ Css.width (Css.rem 20), S.flex00auto, Css.maxHeight Css.none ]
+                    ]
+                , A.attribute "aria-label" "Conversation controls"
+                ]
+                [ H.a
+                    [ Route.href Route.Conversations, A.css [ S.link ] ]
+                    [ H.text "All conversations" ]
+                , H.h1 [ A.css [ S.textGray3 ] ] [ H.text "Conversation" ]
+                , H.p []
+                    [ H.text
+                        ("Participants: "
+                            ++ String.join ", " (List.map .name model.participants)
+                        )
+                    ]
+                , H.p [ A.attribute "role" "status" ] [ H.text autonomyStatus ]
+                , H.fieldset
+                    [ A.disabled model.pending
+                    , A.css [ S.border0, S.col, S.g2, S.minW0 ]
+                    ]
+                    [ personSelector
+                    , Button.secondary "Add participant" AddParticipantButtonClicked
+                        |> Button.toHtml
+                    ]
+                , H.a
+                    [ Route.href (Route.Person model.currentPerson), A.css [ S.link ] ]
+                    [ H.text "Edit human profile" ]
+                , replyControlsView model conversation
+                , sharedNote
+                , noteHistoryView model
+                , generationHistory
+                ]
+
+        errorStatus : Html Msg
+        errorStatus =
+            case model.error of
+                Nothing ->
+                    H.text ""
+
+                Just error ->
+                    H.p [ A.attribute "role" "status", A.css [ S.wrapAnywhere ] ]
+                        [ H.text (errorToString error) ]
     in
     H.div
         [ A.css
             [ S.col
             , S.g3
+            , S.minW0
+            , S.lg [ S.row, Css.property "height" "calc(100dvh - 2rem)" ]
             ]
         ]
-        [ H.a
-            [ Route.href Route.Conversations, A.css [ S.link ] ]
-            [ H.text "All conversations" ]
-        , H.h2 [ A.css [ S.textGray3 ] ]
-            [ H.text (ConversationTitleUtil.toString conversation.title) ]
-        , H.p []
-            [ H.text
-                ("Participants: "
-                    ++ String.join ", " (List.map .name model.participants)
-                )
+        [ controls
+        , H.article
+            [ A.css
+                [ S.col
+                , S.g3
+                , S.p3
+                , S.bgGray1
+                , S.outdent
+                , S.minW0
+                , S.h75Viewport
+                , S.minH96
+                , S.lg [ S.flex1, S.hFull, S.minH0 ]
+                ]
             ]
-        , H.p [ A.attribute "role" "status" ] [ H.text autonomyStatus ]
-        , H.fieldset
-            [ A.disabled model.pending
-            , A.css [ S.border0, S.col, S.g2 ]
+            [ H.h2 [ A.css [ S.textGray3, S.wrapAnywhere ] ]
+                [ H.text (ConversationTitleUtil.toString conversation.title) ]
+            , messages
+            , composerView model
+            , errorStatus
             ]
-            [ personSelector
-            , Button.secondary "Add participant" AddParticipantButtonClicked
-                |> Button.toHtml
-            ]
-        , H.a
-            [ Route.href (Route.Person model.currentPerson), A.css [ S.link ] ]
-            [ H.text "Edit human profile" ]
-        , messages
-        , composerView model conversation
-        , sharedNote
-        , noteHistoryView model
-        , generationHistory
         ]
 
 
-composerView : Model -> Conversation -> Html Msg
-composerView model conversation =
+composerView : Model -> Html Msg
+composerView model =
+    let
+        speakingAsMyself : Bool
+        speakingAsMyself =
+            model.speaker == PersonIdUtil.toString model.currentPerson
+
+        messageInput : Html Msg
+        messageInput =
+            if speakingAsMyself then
+                H.div [ A.css [ S.col, S.g2 ] ]
+                    [ H.label [ A.css [ S.col, S.g2 ] ]
+                        [ H.text "Message"
+                        , H.div [ A.css [ S.h16 ] ]
+                            [ Textarea.simple model.draft DraftInputChanged |> Textarea.toHtml ]
+                        ]
+                    , Button.primary "Send" SendButtonClicked |> Button.toHtml
+                    ]
+
+            else
+                H.text ""
+    in
+    H.fieldset
+        [ A.disabled model.pending
+        , A.css [ S.border0, S.col, S.g2, S.minW0, S.flex00auto ]
+        ]
+        [ messageInput ]
+
+
+replyControlsView : Model -> Conversation -> Html Msg
+replyControlsView model conversation =
     let
         speakerFeedback : Html Msg
         speakerFeedback =
@@ -846,20 +913,6 @@ composerView model conversation =
         speakingAsMyself : Bool
         speakingAsMyself =
             model.speaker == PersonIdUtil.toString model.currentPerson
-
-        messageInput : Html Msg
-        messageInput =
-            if speakingAsMyself then
-                H.div [ A.css [ S.col, S.g2 ] ]
-                    [ H.label [ A.css [ S.col, S.g2 ] ]
-                        [ H.text "Message"
-                        , Textarea.simple model.draft DraftInputChanged |> Textarea.toHtml
-                        ]
-                    , Button.primary "Send" SendButtonClicked |> Button.toHtml
-                    ]
-
-            else
-                H.text ""
 
         selectedReply : Html Msg
         selectedReply =
@@ -896,9 +949,8 @@ composerView model conversation =
             if conversation.activeGeneration == Nothing then
                 H.div
                     [ A.css
-                        [ S.row
+                        [ S.col
                         , S.g2
-                        , S.flexWrap
                         ]
                     ]
                     [ selectedReply
@@ -917,8 +969,7 @@ composerView model conversation =
         [ A.disabled model.pending
         , A.css [ S.border0, S.col, S.g2 ]
         ]
-        [ messageInput
-        , H.div
+        [ H.div
             [ A.id "speaker-feedback"
             , A.attribute "role" "alert"
             ]

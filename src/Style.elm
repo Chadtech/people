@@ -77,6 +77,7 @@ module Style exposing
     , h6
     , h64
     , h72
+    , h75Viewport
     , h8
     , hAuto
     , hFull
@@ -122,6 +123,7 @@ module Style exposing
     , md
     , minH0
     , minH32
+    , minH96
     , minHFullViewport
     , minW0
     , minW16
@@ -928,6 +930,11 @@ hFullViewport =
     Css.height <| Css.vh 100
 
 
+h75Viewport : Css.Style
+h75Viewport =
+    Css.height (Css.vh 75)
+
+
 hAuto : Css.Style
 hAuto =
     Css.height Css.auto
@@ -946,6 +953,11 @@ minH0 =
 minH32 : Css.Style
 minH32 =
     Css.minHeight s32
+
+
+minH96 : Css.Style
+minH96 =
+    Css.minHeight s96
 
 
 minHFullViewport : Css.Style
