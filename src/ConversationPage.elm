@@ -14,12 +14,13 @@ module ConversationPage exposing
 import Acadia.Transaction
 import Acadia.UInt64 as UInt64
 import Acadia.UInt8
+import AssocList as Dict exposing (Dict)
+import AssocSet as Set exposing (Set)
 import Chat exposing (ConversationPageFlag, Message)
 import Conversation exposing (Conversation)
 import ConversationId exposing (ConversationId)
 import ConversationTitle.Util as ConversationTitleUtil
 import Css
-import Dict exposing (Dict)
 import Document exposing (Document)
 import Effect as E exposing (Eff)
 import Generation exposing (GenerationSummary)
@@ -39,11 +40,10 @@ import Person exposing (Person)
 import PersonId exposing (PersonId)
 import PersonId.Util as PersonIdUtil
 import PromptInspection
-import PromptSnapshot
+import PromptSnapshot exposing (PromptSnapshot)
 import PromptSnapshot.Util as PromptSnapshotUtil
 import Remote exposing (Remote)
 import Route
-import Set exposing (Set)
 import Shared
 import Style as S
 import Time
@@ -65,9 +65,9 @@ type alias Model =
     , people : List Person
     , messages : List (Attributed Message)
     , participants : List Person
-    , prompts : Dict String String
-    , loadingPrompts : Set String
-    , generations : List Generation.GenerationSummary
+    , prompts : Dict GenerationId PromptSnapshot
+    , loadingPrompts : Set GenerationId
+    , generations : List GenerationSummary
     , selectedView : ConversationView
     , draft : String
     , participantToAdd : String
@@ -112,7 +112,7 @@ type Msg
     | TickReceived
     | PageFlagsResponseReceived (Remote Flags)
     | PromptInspectionClicked GenerationId
-    | PromptResponseReceived GenerationId (Remote PromptSnapshot.PromptSnapshot)
+    | PromptResponseReceived GenerationId (Remote PromptSnapshot)
     | DraftInputChanged String
     | ParticipantSelectionChanged String
     | SpeakerSelectionChanged String
@@ -483,14 +483,14 @@ update msg model =
                     ( refreshedModel, E.none )
 
         PromptInspectionClicked generationId ->
-            if Set.member (GenerationIdUtil.toString generationId) model.loadingPrompts then
+            if Set.member generationId model.loadingPrompts then
                 ( model, E.none )
 
             else
                 ( { model
                     | loadingPrompts =
                         Set.insert
-                            (GenerationIdUtil.toString generationId)
+                            generationId
                             model.loadingPrompts
                   }
                 , E.fetch
@@ -505,7 +505,7 @@ update msg model =
                     { model
                         | loadingPrompts =
                             Set.remove
-                                (GenerationIdUtil.toString generationId)
+                                generationId
                                 model.loadingPrompts
                     }
             in
@@ -514,10 +514,8 @@ update msg model =
                     ( { next
                         | prompts =
                             Dict.insert
-                                (GenerationIdUtil.toString
-                                    generationId
-                                )
-                                (PromptSnapshotUtil.toString prompt)
+                                generationId
+                                prompt
                                 next.prompts
                       }
                     , E.none
@@ -1067,15 +1065,21 @@ generationView model generation =
 
         promptInspection : Html Msg
         promptInspection =
-            case Dict.get (GenerationIdUtil.toString generation.id) model.prompts of
+            case Dict.get generation.id model.prompts of
                 Nothing ->
                     H.text ""
 
-                Just "" ->
-                    H.p [] [ H.text "No prompt has been saved for this turn yet." ]
-
                 Just prompt ->
-                    PromptInspection.view prompt
+                    let
+                        raw : String
+                        raw =
+                            PromptSnapshotUtil.toString prompt
+                    in
+                    if String.isEmpty raw then
+                        H.p [] [ H.text "No prompt has been saved for this turn yet." ]
+
+                    else
+                        PromptInspection.view raw
     in
     H.details [ A.css [ S.col, S.g2 ] ]
         [ H.summary []
@@ -1090,7 +1094,7 @@ generationView model generation =
         , H.fieldset
             [ A.disabled
                 (Set.member
-                    (GenerationIdUtil.toString generation.id)
+                    generation.id
                     model.loadingPrompts
                 )
             , A.css [ S.border0, S.minW0 ]
