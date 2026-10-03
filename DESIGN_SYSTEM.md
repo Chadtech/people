@@ -197,7 +197,11 @@ Conversation detail uses one full-width panel with Conversation and
 Generation history view selectors. Show only the selected view; default to
 Conversation and preserve drafts and loaded inspection data when switching.
 The transcript has a bounded, keyboard-focusable scroll area with the Person
-selector, composer, and routine reply controls below. Run 1 turn, Run 6 turns,
+selector, composer, and routine reply controls below. Size the conversation area
+from the space remaining inside the page after its header and gutters, rather
+than a fixed viewport percentage that adds unnecessary whole-card scrolling.
+Keep its minimum height so short windows and expanded settings remain accessible
+through card scrolling. Run 1 turn, Run 6 turns,
 the selected-person reply action, and Stop remain outside disclosures so continuing
 or stopping a conversation is immediately available. Participant and automation settings live in a
 compact disclosure with a dedicated Participant to add menu containing only
@@ -292,6 +296,7 @@ experiment into an established preference or expand a small task into a redesign
 
 | Date | Status | Decision and reason |
 | --- | --- | --- |
+| 2026-09-27 | Established | Let the conversation area fill the remaining page height instead of using 75vh plus surrounding content; removes incidental whole-card scrolling while retaining transcript scrolling and a usable minimum height. |
 | 2026-09-27 | Established | Use `bgNightwood1` for alternating participant rows instead of a custom color; reuse the palette tokens. |
 | 2026-09-27 | Established | Remove shared notes and their history from conversations; collaborative notes are not part of the core conversation experience. |
 | 2026-09-27 | Established | Keep routine reply/run controls and Stop beside the composer, outside Participants and automation; that disclosure is for participant and autonomy settings. |

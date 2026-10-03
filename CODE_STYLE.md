@@ -95,6 +95,56 @@ and small functions in an Elm-like style. Use explicit imports so names such as
 `Data.Aeson.Value` have an obvious source. `fourmolu.yaml` records the formatting
 settings for handwritten Haskell; do not format generated bindings by hand.
 
+## Elm-inspired Haskell
+
+Write handwritten Haskell with the same visual rhythm and explicit structure as
+Elm. Use `fourmolu.yaml` as the shared formatting baseline:
+
+- Indent by four spaces and separate top-level definitions with two blank lines.
+- Separate local definitions in `let` and `where` blocks, and branches of a
+  `case` expression, with one blank line, matching `elm-format`. Keep each type
+  signature attached to its definition; signatures for a shared tuple binding
+  and equations of the same Haskell function stay together. Fourmolu preserves
+  local-definition spacing but does not insert it automatically. Expand
+  semicolon-separated case branches onto separate lines too.
+- Put function bodies and case-branch results on the next line, indented beneath
+  the definition or pattern. Prefer readable pattern matching to dense guards,
+  nested conditionals, or clever operator chains.
+- Use leading commas in multiline lists, records, and import/export lists, and
+  leading arrows in multiline type signatures. Aim for roughly 80 columns;
+  do not change literal text just to meet that target.
+- Put `let` bindings on their own lines and align `in` with `let`. Keep small,
+  single-use helpers close to their use; retain `where` when it reads naturally.
+- Prefer ordinary algebraic data types, explicit arguments, named intermediate
+  values, and small functions. Use domain types and `Maybe`/`Either` to express
+  alternatives rather than sentinel values or exceptions for ordinary outcomes.
+- Keep Haskell idioms where they help: `do` notation for effects, typeclass
+  instances for library integration, and straightforward composition are welcome.
+  Elm-inspired means readable and explicit, not reproducing Elm syntax or adding
+  wrappers merely to hide Haskell.
+
+Use Fourmolu as a layout aid for maintained source, application, and test modules
+(including the maintained Acadia compatibility copy). Our current version removes
+blank lines between case branches, so its output is not the final style. Preview
+its output before applying it, and retain or restore the required branch spacing:
+
+```sh
+fourmolu server/src/People/Prompt.hs > /tmp/Prompt.formatted.hs
+diff -u server/src/People/Prompt.hs /tmp/Prompt.formatted.hs
+```
+
+Generated files under `server/generated` belong to Acadia and retain its output
+format. Formatting changes should preserve behavior and literal contents; keep
+semantic refactors separate. Do not remove branch spacing just to pass
+Fourmolu's exact-output check; validate Haskell with the build and unit tests.
+
+### Haskell list transformations
+
+Use `map` with named helpers instead of list comprehensions. Use `filter` before
+`map` when selecting items. When matching a constructor should skip other
+variants, use `mapMaybe` with an explicit case expression returning `Just` or
+`Nothing`. Preserve list order and duplicates.
+
 ## View composition and helper scope
 
 Keep view markup focused on structure. An `if` or `case` expression in a child

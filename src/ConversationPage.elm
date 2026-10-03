@@ -661,7 +661,7 @@ view model =
     , body =
         [ H.div
             [ A.css
-                [ S.p4, S.col, S.g3, S.wFull ]
+                [ S.p4, S.col, S.g3, S.wFull, S.hFull ]
             ]
             [ conversationView model model.conversation ]
         ]
@@ -889,9 +889,9 @@ conversationView model conversation =
             case model.selectedView of
                 MessagesView ->
                     H.div
-                        [ A.css [ S.col, S.g3 ] ]
+                        [ A.css [ S.col, S.g3, S.flex1, S.minH0 ] ]
                         [ H.div
-                            [ A.css [ S.col, S.g3, S.h75Viewport, S.minH96 ] ]
+                            [ A.css [ S.col, S.g3, S.flex1, S.minH96 ] ]
                             [ messages
                             , personSelector
                             , composerView model
@@ -914,7 +914,7 @@ conversationView model conversation =
                         [ H.text (errorToString error) ]
     in
     H.article
-        [ A.css [ S.col, S.g3, S.p3, S.bgGray1, S.outdent, S.minW0, S.wrapAnywhere ] ]
+        [ A.css [ S.col, S.g3, S.p3, S.bgGray1, S.outdent, S.minW0, S.wrapAnywhere, S.flex1, S.minH0, S.overflowAuto ] ]
         [ H.a
             [ Route.href Route.Conversations, A.css [ S.link ] ]
             [ H.text "All conversations" ]
@@ -923,7 +923,9 @@ conversationView model conversation =
         , H.p []
             [ H.text ("Participants: " ++ String.join ", " (List.map .name model.participants)) ]
         , viewSelector
-        , H.div [ A.id "conversation-content" ] [ selectedContent ]
+        , H.div
+            [ A.id "conversation-content", A.css [ S.col, S.flex1, S.minH0 ] ]
+            [ selectedContent ]
         , errorStatus
         ]
 

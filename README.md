@@ -55,7 +55,7 @@ then `.env`. Missing files are fine; both local files are Git-ignored.
 
 If you already have `.env.local`, fill in `OPENAI_API_KEY` and `OPENAI_MODEL`
 there. Otherwise, copy `.env.example` to `.env` and fill in those two values.
-The model must support the OpenAI Responses API and structured JSON outputs.
+The model must support the OpenAI Responses API and function calling.
 Files support `KEY=value`, optional `export`, single or double quotes, and
 comments. Values are literal: shell commands, variable interpolation, escape
 sequences, and multiline values are not evaluated. Restart the worker after
@@ -112,8 +112,24 @@ Enable autonomy for one turn every five minutes; Stop disables it. The interval,
 next due time, run budget, and last speaker live in Acadia tables. Missed
 intervals produce one turn when the worker returns, not a catch-up burst.
 The worker saves the assembled request and context selection in the generation
-record, then calls OpenAI. Validated replies, goals, reflections, and goal completion
-are committed together. Stop rejects late results.
+record, then calls OpenAI. Public replies are ordinary text. The model can call
+`create_goal(description)`, `complete_goal(goal_id)`, and `save_memory(content)`;
+each action commits separately and returns a success result (including its saved
+record ID) or a validation error before the model continues. Goal IDs are decimal
+strings. Tools can only affect the selected AI person's records and require an
+active, unexpired generation. Only the final response without tool calls becomes
+a conversation message.
+
+The worker follows the [Responses function-calling protocol](https://developers.openai.com/api/docs/guides/function-calling),
+replaying output items, including reasoning, with `function_call_output` results
+and `store: false`. The prompt inspector's raw snapshot includes all requests and
+the tool transcript. The loop allows at most eight tool calls and 175 seconds per
+turn. Repeated call IDs with identical arguments reuse their result. Ambiguous
+database/transport failures stop the turn without retrying a write.
+
+Stop rejects subsequent actions and late replies. Actions already committed stay
+saved if the reply fails, times out, or is cancelled. Inspect the saved goals,
+memories, and turn transcript before starting a fresh turn.
 OpenAI failures stop the remaining run budget rather than silently retrying paid
 requests. Prompt snapshots exclude the API key.
 
@@ -155,12 +171,15 @@ isolated Acadia server (for example on port 9011):
 cabal run people-integration -- http://localhost:9011
 ```
 
-It checks stale identity edits, duplicate turn claims, atomic action rollback,
-goal ownership, cancellation, bounded-run failure behavior, competing workers,
-round-robin autonomy, and expired-worker recovery without live AI calls.
+It checks stale identity edits, duplicate turn claims, tool-result continuation,
+action failure recovery, duplicate call IDs, goal ownership, cancellation,
+bounded-run failure behavior, competing workers, round-robin autonomy, and
+expired-worker recovery without live AI calls. Add `--tools-only` after the URL
+to run just the tool-loop checks.
 
 Run `cabal test people-unit` for offline OpenAI response validation, including
-refusals, incomplete replies, missing fields, output limits, and goal ID bounds.
+refusals, incomplete replies, tool argument validation, reasoning replay, output
+limits, and goal ID bounds.
 
 ## Temporary development data
 

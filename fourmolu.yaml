@@ -2,6 +2,8 @@ indentation: 4
 column-limit: 80
 function-arrows: leading
 comma-style: leading
+import-export-style: leading
 indent-wheres: true
 newlines-between-decls: 2
 let-style: newline
+in-style: left-align

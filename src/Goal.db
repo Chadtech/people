@@ -3,6 +3,7 @@ database module Goal exposing
     , GoalStatus(..)
     , completeGoal
     , insertGoal
+    , insertGoalWithId
     , endpoint createGoal
     , endpoint getGoals
     , endpoint setGoalStatus
@@ -66,21 +67,34 @@ createGoal _ personId description =
 insertGoal : PersonId -> GoalDescription -> Origin -> Transaction ()
 insertGoal personId description source =
     let
+        id : GoalId
+        id :=
+            insertGoalWithId personId description source
+    in
+    Transaction.succeed ()
+
+
+insertGoalWithId : PersonId -> GoalDescription -> Origin -> Transaction GoalId
+insertGoalWithId personId description source =
+    let
         () :=
             Person.requireAiPerson personId
 
         id : GoalId
         id :=
             Seq.next goalIds
+
+        () :=
+            Table.insert goals
+                Security.Unrestricted
+                { id = id
+                , personId = personId
+                , description = description
+                , status = Active
+                , source = source
+                }
     in
-    Table.insert goals
-        Security.Unrestricted
-        { id = id
-        , personId = personId
-        , description = description
-        , status = Active
-        , source = source
-        }
+    Transaction.succeed id
 
 
 setGoalStatus : Cookies -> PersonId -> GoalId -> GoalStatus -> Transaction ()

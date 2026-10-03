@@ -1,6 +1,8 @@
 database module Chat exposing
     ( ConversationPageFlag(..)
     , Message
+    , endpoint completeGenerationGoal
+    , endpoint createGenerationGoal
     , endpoint expireGeneration
     , endpoint failGeneration
     , endpoint finishGeneration
@@ -8,6 +10,7 @@ database module Chat exposing
     , endpoint getConversationPageFlags
     , endpoint getMessages
     , endpoint requestTurn
+    , endpoint saveGenerationMemory
     , endpoint sendMessage
     , endpoint stopConversation
     )
@@ -19,12 +22,13 @@ import Generation exposing (Generation)
 import GenerationError exposing (GenerationError(..))
 import GenerationId exposing (GenerationId)
 import Goal
-import GoalDescription exposing (GoalDescription(..))
+import GoalDescription exposing (GoalDescription)
 import GoalId exposing (GoalId)
 import IntervalSeconds exposing (IntervalSeconds(..))
 import LocalAccount
 import Memory
-import MemoryContent exposing (MemoryContent(..))
+import MemoryContent exposing (MemoryContent)
+import MemoryId exposing (MemoryId)
 import MemoryKeywords exposing (MemoryKeywords(..))
 import MessageContent exposing (MessageContent(..))
 import MessageId exposing (MessageId)
@@ -312,11 +316,8 @@ finishGeneration :
     Cookies
     -> GenerationId
     -> MessageContent
-    -> GoalDescription
-    -> MemoryContent
-    -> Maybe GoalId
     -> Transaction ()
-finishGeneration _ id content newGoal memory completedGoal =
+finishGeneration _ id content =
     let
         now : Posix
         now :=
@@ -350,17 +351,6 @@ finishGeneration _ id content newGoal memory completedGoal =
                 , author = generation.speaker
                 , content = content
                 }
-
-        () :=
-            recordReflection generation.speaker id newGoal memory
-
-        () :=
-            case completedGoal of
-                Nothing ->
-                    Transaction.succeed ()
-
-                Just goalId ->
-                    Goal.completeGoal generation.speaker goalId
     in
     Store.update Generation.generations
         (\row -> row.id == id)
@@ -443,30 +433,61 @@ expireGeneration cookies id =
     failGeneration cookies
         id
         (GenerationError
-            "The worker did not finish before its deadline. No result was applied. Start a new turn to retry."
+            "The worker did not finish before its deadline. No final reply was saved. Earlier tool actions may remain saved; inspect the turn before retrying."
         )
 
 
-recordReflection :
-    PersonId
-    -> GenerationId
-    -> GoalDescription
-    -> MemoryContent
-    -> Transaction ()
-recordReflection personId generationId (GoalDescription newGoal) (MemoryContent memory) =
+-- Every action resolves its owner from a live generation inside the same
+-- transaction as the write. Cancellation and expired leases reject later actions.
+
+
+requireRunningGeneration : GenerationId -> Transaction Generation
+requireRunningGeneration id =
     let
+        now : Posix
+        now :=
+            Time.now
+
+        generation : Generation
+        generation :=
+            Store.require Generation.generations
+                (\row -> row.id == id && row.phase == Generation.Running && row.leaseUntil > now)
+
         () :=
-            if newGoal == "" then
-                Transaction.succeed ()
+            Store.ensure Conversation.conversations
+                (\row -> row.id == generation.conversationId && Conversation.hasGeneration id row)
 
-            else
-                Goal.insertGoal personId (GoalDescription newGoal) (Origin.Reflection generationId)
+        () :=
+            Person.requireAiPerson generation.speaker
     in
-    if memory == "" then
-        Transaction.succeed ()
+    Transaction.succeed generation
 
-    else
-        Memory.insertMemory personId
-            (MemoryContent memory)
-            (MemoryKeywords "")
-            (Origin.Reflection generationId)
+
+createGenerationGoal : Cookies -> GenerationId -> GoalDescription -> Transaction GoalId
+createGenerationGoal _ id description =
+    let
+        generation : Generation
+        generation :=
+            requireRunningGeneration id
+    in
+    Goal.insertGoalWithId generation.speaker description (Origin.Reflection id)
+
+
+completeGenerationGoal : Cookies -> GenerationId -> GoalId -> Transaction ()
+completeGenerationGoal _ id goalId =
+    let
+        generation : Generation
+        generation :=
+            requireRunningGeneration id
+    in
+    Goal.completeGoal generation.speaker goalId
+
+
+saveGenerationMemory : Cookies -> GenerationId -> MemoryContent -> Transaction MemoryId
+saveGenerationMemory _ id content =
+    let
+        generation : Generation
+        generation :=
+            requireRunningGeneration id
+    in
+    Memory.insertMemoryWithId generation.speaker content (MemoryKeywords "") (Origin.Reflection id)

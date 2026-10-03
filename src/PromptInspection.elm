@@ -9,7 +9,7 @@ import Style as S
 
 type alias Source =
     { source : String
-    , reason : String
+    , selectionReason : String
     , text : String
     }
 
@@ -70,7 +70,7 @@ view raw =
 sourceView : Source -> Html msg
 sourceView source =
     H.div [ A.css [ S.col, S.g2, Css.property "overflow-wrap" "anywhere" ] ]
-        [ H.p [ A.css [ S.textGray3 ] ] [ H.text (source.source ++ " · " ++ source.reason) ]
+        [ H.p [ A.css [ S.textGray3 ] ] [ H.text (source.source ++ " · " ++ source.selectionReason) ]
         , textBlock source.text
         ]
 

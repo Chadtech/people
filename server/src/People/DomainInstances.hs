@@ -30,7 +30,8 @@ deriving stock instance Ord PersonId
 
 
 instance Show PersonId where
-    show (PersonId value) = show value
+    show (PersonId value) =
+        show value
 
 
 deriving stock instance Eq GoalId
@@ -38,7 +39,8 @@ deriving stock instance Ord GoalId
 
 
 instance Show GoalId where
-    show (GoalId value) = show value
+    show (GoalId value) =
+        show value
 
 
 deriving stock instance Eq MemoryId
@@ -46,7 +48,8 @@ deriving stock instance Ord MemoryId
 
 
 instance Show MemoryId where
-    show (MemoryId value) = show value
+    show (MemoryId value) =
+        show value
 
 
 deriving stock instance Eq ConversationId
@@ -54,7 +57,8 @@ deriving stock instance Ord ConversationId
 
 
 instance Show ConversationId where
-    show (ConversationId value) = show value
+    show (ConversationId value) =
+        show value
 
 
 deriving stock instance Eq MessageId
@@ -62,7 +66,8 @@ deriving stock instance Ord MessageId
 
 
 instance Show MessageId where
-    show (MessageId value) = show value
+    show (MessageId value) =
+        show value
 
 
 deriving stock instance Eq GenerationId
@@ -70,7 +75,8 @@ deriving stock instance Ord GenerationId
 
 
 instance Show GenerationId where
-    show (GenerationId value) = show value
+    show (GenerationId value) =
+        show value
 
 
 deriving stock instance Eq MessageContent

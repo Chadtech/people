@@ -77,9 +77,7 @@ init sharedModel flags =
     }
 
 
-flagsFromResponse :
-    Maybe (List Conversation.AllConversationsPageFlag)
-    -> Maybe Flags
+flagsFromResponse : Maybe (List Conversation.AllConversationsPageFlag) -> Maybe Flags
 flagsFromResponse =
     let
         addPageFlag : Conversation.AllConversationsPageFlag -> Flags -> Flags

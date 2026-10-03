@@ -1,6 +1,7 @@
 database module Memory exposing
     ( Memory
     , insertMemory
+    , insertMemoryWithId
     , endpoint createMemory
     , endpoint getMemories
     , endpoint retireMemory
@@ -58,7 +59,17 @@ createMemory _ personId content keywords =
 
 
 insertMemory : PersonId -> MemoryContent -> MemoryKeywords -> Origin -> Transaction ()
-insertMemory personId content (MemoryKeywords keywords) source =
+insertMemory personId content keywords source =
+    let
+        id : MemoryId
+        id :=
+            insertMemoryWithId personId content keywords source
+    in
+    Transaction.succeed ()
+
+
+insertMemoryWithId : PersonId -> MemoryContent -> MemoryKeywords -> Origin -> Transaction MemoryId
+insertMemoryWithId personId content (MemoryKeywords keywords) source =
     let
         () :=
             Person.requireAiPerson personId
@@ -66,30 +77,33 @@ insertMemory personId content (MemoryKeywords keywords) source =
         id : MemoryId
         id :=
             Seq.next memoryIds
-    in
-    if keywords == "" then
-        Table.insert memories
-            Security.Unrestricted
-            { id = id
-            , personId = personId
-            , content = content
-            , keywords =
-                MemoryKeywords ""
-            , source = source
-            , retired = False
-            }
 
-    else
-        Table.insert memories
-            Security.Unrestricted
-            { id = id
-            , personId = personId
-            , content = content
-            , keywords =
-                MemoryKeywords keywords
-            , source = source
-            , retired = False
-            }
+        () :=
+            if keywords == "" then
+                Table.insert memories
+                    Security.Unrestricted
+                    { id = id
+                    , personId = personId
+                    , content = content
+                    , keywords =
+                        MemoryKeywords ""
+                    , source = source
+                    , retired = False
+                    }
+
+            else
+                Table.insert memories
+                    Security.Unrestricted
+                    { id = id
+                    , personId = personId
+                    , content = content
+                    , keywords =
+                        MemoryKeywords keywords
+                    , source = source
+                    , retired = False
+                    }
+    in
+    Transaction.succeed id
 
 
 retireMemory : Cookies -> PersonId -> MemoryId -> Transaction ()
