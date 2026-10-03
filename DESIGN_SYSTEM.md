@@ -245,7 +245,10 @@ resulting state remains visible after page reload.
 
 Prompt snapshots load on request inside a
 turn disclosure, so routine status refreshes do not reload large inspection data.
-Render prompt inputs as attributed text with their selection reasons. Keep
+Render typed prompt inputs as attributed text with their selection reasons.
+Decode snapshots at the endpoint boundary; rendering does not parse saved JSON.
+Represent an unsaved prompt explicitly, and retain serialized JSON only as exact
+evidence for the raw disclosure. Keep
 excluded inputs and the exact serialized request in separate disclosures, so
 the readable view preserves access to the original saved evidence.
 
@@ -296,6 +299,7 @@ experiment into an established preference or expand a small task into a redesign
 
 | Date | Status | Decision and reason |
 | --- | --- | --- |
+| 2026-10-03 | Established | Prompt inspection consumes a shared typed snapshot decoded by the endpoint; an explicit unsaved state replaces empty text, while raw JSON remains available as evidence. |
 | 2026-09-27 | Established | Let the conversation area fill the remaining page height instead of using 75vh plus surrounding content; removes incidental whole-card scrolling while retaining transcript scrolling and a usable minimum height. |
 | 2026-09-27 | Established | Use `bgNightwood1` for alternating participant rows instead of a custom color; reuse the palette tokens. |
 | 2026-09-27 | Established | Remove shared notes and their history from conversations; collaborative notes are not part of the core conversation experience. |

@@ -1,0 +1,22 @@
+database module Snapshot exposing (Snapshot, Source, Sources(..))
+
+
+type alias Source =
+    { source : String
+    , selectionReason : String
+    , text : String
+    }
+
+
+type Sources
+    = NoSources
+    | SourceItem Source Sources
+
+
+type alias Snapshot =
+    { included : Sources
+    , omitted : Sources
+    , budget : UInt64
+    , instructions : Maybe String
+    , raw : String
+    }

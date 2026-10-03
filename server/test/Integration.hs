@@ -4,6 +4,8 @@
 module Main (main) where
 
 import AiPersonProfile (AiPersonProfile)
+import qualified Acadia.Records as Records
+import qualified Snapshot
 import qualified LocalAccount
 import qualified MemoryContent
 import qualified MessageContent
@@ -304,6 +306,8 @@ checkTools database =
                 (Person.updatePersonIdentity person initial.person.revision "Curious." "Learn.")
         conversation <- run (Conversation.createConversation "Tool loop" person)
         generation <- run (Chat.requestTurn conversation 0 person)
+        Just PromptSnapshot.NotSaved <-
+            run (Generation.getGenerationPrompt conversation generation)
         calls <- newIORef (0 :: Int)
         let
             generate _ history =
@@ -399,7 +403,8 @@ checkTools database =
             "Exactly one final reply saved"
         Just snapshot <- run (Generation.getGenerationPrompt conversation generation)
         let
-            PromptSnapshot.PromptSnapshot snapshotText = snapshot
+            PromptSnapshot.Saved savedSnapshot = snapshot
+            snapshotText = savedSnapshot.raw
         assert
             ( T.isInfixOf "function_call_output" snapshotText
                 && T.isInfixOf "requests" snapshotText
@@ -592,17 +597,43 @@ runLifecycle url =
         run (Generation.claimGeneration generationId 180)
         putStrLn "Checking duplicate claim"
         mustFail (run (Generation.claimGeneration generationId 180))
-        run (Generation.savePrompt generationId "Test prompt")
-        Just storedPrompt <-
+        let
+            included =
+                Snapshot.SourceItem
+                    (Records.Record3 "person:1" "Person identity" "Curious. 世界")
+                    Snapshot.NoSources
+
+            omitted =
+                Snapshot.SourceItem
+                    (Records.Record3 "message:1" "Context budget exceeded" "Older message")
+                    Snapshot.NoSources
+
+            testPrompt =
+                PromptSnapshot.Saved
+                    (Records.Record5 included omitted 24000 (Just "Instructions") "Exact evidence")
+        run (Generation.savePrompt generationId testPrompt)
+        Just (PromptSnapshot.Saved storedPrompt) <-
             run (Generation.getGenerationPrompt conversationId generationId)
-        assert (storedPrompt == "Test prompt") "On-demand prompt round trip"
+        let
+            Snapshot.SourceItem includedSource Snapshot.NoSources = storedPrompt.included
+            Snapshot.SourceItem omittedSource Snapshot.NoSources = storedPrompt.omitted
+        assert
+            ( storedPrompt.budget == 24000
+                && storedPrompt.instructions == Just "Instructions"
+                && storedPrompt.raw == "Exact evidence"
+                && includedSource.source == "person:1"
+                && includedSource.selectionReason == "Person identity"
+                && includedSource.text == "Curious. 世界"
+                && omittedSource.text == "Older message"
+            )
+            "Typed on-demand prompt round trip"
         missingPrompt <-
             run
                 ( Generation.getGenerationPrompt
                     (ConversationId.ConversationId 999999)
                     generationId
                 )
-        assert (missingPrompt == Nothing) "Prompt lookup respects conversation identity"
+        assert (isNothing missingPrompt) "Prompt lookup respects conversation identity"
         checkConversationRefresh database conversationId
         checkConversationRefresh database otherConversationId
         summaries <- run (Generation.getGenerationSummaries conversationId)
@@ -810,7 +841,7 @@ runLifecycle url =
         run (Generation.claimGeneration lostId 1)
         mustFail (run (Chat.expireGeneration lostId))
         threadDelay 1200000
-        mustFail (run (Generation.savePrompt lostId "Too late"))
+        mustFail (run (Generation.savePrompt lostId PromptSnapshot.NotSaved))
         mustFail
             (run (Chat.finishGeneration lostId "Late reply"))
         cycleOnce restartedConnection
@@ -1110,7 +1141,8 @@ runLifecycle url =
         Just humanSnapshot <-
             run (Generation.getGenerationPrompt humanConversation queuedHuman)
         let
-            PromptSnapshot.PromptSnapshot snapshotText = humanSnapshot
+            PromptSnapshot.Saved savedSnapshot = humanSnapshot
+            snapshotText = savedSnapshot.raw
         assert
             (not (T.isInfixOf "Posted while the AI was thinking" snapshotText))
             "Saved prompt records the actual generation boundary"

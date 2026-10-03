@@ -40,8 +40,7 @@ import Person exposing (Person)
 import PersonId exposing (PersonId)
 import PersonId.Util as PersonIdUtil
 import PromptInspection
-import PromptSnapshot exposing (PromptSnapshot)
-import PromptSnapshot.Util as PromptSnapshotUtil
+import PromptSnapshot exposing (PromptSnapshot(..))
 import Remote exposing (Remote)
 import Route
 import Shared
@@ -429,6 +428,16 @@ requestTurn model =
             model
                 |> setSpeakerError SpeakerSelectionRequired
                 |> E.withOut
+
+
+isAiPerson : Person -> Bool
+isAiPerson person =
+    case person.kind of
+        Person.AiPerson _ ->
+            True
+
+        Person.HumanPerson ->
+            False
 
 
 
@@ -1069,17 +1078,11 @@ generationView model generation =
                 Nothing ->
                     H.text ""
 
-                Just prompt ->
-                    let
-                        raw : String
-                        raw =
-                            PromptSnapshotUtil.toString prompt
-                    in
-                    if String.isEmpty raw then
-                        H.p [] [ H.text "No prompt has been saved for this turn yet." ]
+                Just NotSaved ->
+                    H.p [] [ H.text "No prompt has been saved for this turn yet." ]
 
-                    else
-                        PromptInspection.view raw
+                Just (Saved snapshot) ->
+                    PromptInspection.view snapshot
     in
     H.details [ A.css [ S.col, S.g2 ] ]
         [ H.summary []
@@ -1116,13 +1119,3 @@ generationView model generation =
 subscriptions : Sub Msg
 subscriptions =
     Time.every 1500 (\_ -> TickReceived)
-
-
-isAiPerson : Person -> Bool
-isAiPerson person =
-    case person.kind of
-        Person.AiPerson _ ->
-            True
-
-        Person.HumanPerson ->
-            False

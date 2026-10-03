@@ -20,7 +20,6 @@ import MemoryKeywords (MemoryKeywords (..))
 import MessageContent (MessageContent (..))
 import MessageId (MessageId (..))
 import PersonId (PersonId (..))
-import PromptSnapshot (PromptSnapshot (..))
 import Revision (Revision (..))
 import TurnCount (TurnCount (..))
 
@@ -83,12 +82,6 @@ deriving stock instance Eq MessageContent
 deriving stock instance Ord MessageContent
 deriving stock instance Show MessageContent
 deriving newtype instance IsString MessageContent
-
-
-deriving stock instance Eq PromptSnapshot
-deriving stock instance Ord PromptSnapshot
-deriving stock instance Show PromptSnapshot
-deriving newtype instance IsString PromptSnapshot
 
 
 deriving stock instance Eq GenerationError

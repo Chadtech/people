@@ -5,8 +5,8 @@ build-type: Simple
 
 library
   hs-source-dirs: src, generated
-  exposed-modules: People.Environment, LocalAccount, AccountId, AiPersonProfile, MessageContent, PromptSnapshot, GenerationError, ConversationTitle, GoalDescription, MemoryContent, MemoryKeywords, Revision, TurnCount, IntervalSeconds, LeaseSeconds, People.DomainInstances, People.Database, People.Prompt, People.SelectionReason, People.OpenAI, People.Worker, Person, Conversation, Generation, Chat, Goal, Memory, Origin, PersonId, Fixtures, GoalId, MemoryId, ConversationId, MessageId, GenerationId
-  other-modules: Acadia.Transaction, Acadia.Records,
+  exposed-modules: Acadia.Records, People.Environment, LocalAccount, AccountId, AiPersonProfile, MessageContent, PromptSnapshot, Snapshot, GenerationError, ConversationTitle, GoalDescription, MemoryContent, MemoryKeywords, Revision, TurnCount, IntervalSeconds, LeaseSeconds, People.DomainInstances, People.Database, People.Prompt, People.SelectionReason, People.OpenAI, People.Worker, Person, Conversation, Generation, Chat, Goal, Memory, Origin, PersonId, Fixtures, GoalId, MemoryId, ConversationId, MessageId, GenerationId
+  other-modules: Acadia.Transaction,
     Acadia.Time, Acadia.Uuid, Acadia.Password, Acadia.Result,
     Acadia.Bytes.Encode, Acadia.Bytes.Decode
   build-depends: base >=4.19 && <4.20, ghc-prim, bytestring, text, http-client, http-client-tls, http-types, aeson, async, time

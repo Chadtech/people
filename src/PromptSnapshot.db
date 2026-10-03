@@ -1,5 +1,8 @@
 database module PromptSnapshot exposing (PromptSnapshot(..))
 
+import Snapshot exposing (Snapshot)
+
 
 type PromptSnapshot
-    = PromptSnapshot String
+    = NotSaved
+    | Saved Snapshot

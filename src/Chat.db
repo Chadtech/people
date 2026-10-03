@@ -304,7 +304,7 @@ requestTurn _ conversationId expectedRevision speaker =
                 , conversationId = conversationId
                 , speaker = speaker
                 , phase = Generation.Pending
-                , prompt = PromptSnapshot ""
+                , prompt = NotSaved
                 , error = GenerationError ""
                 , leaseUntil = now
                 }

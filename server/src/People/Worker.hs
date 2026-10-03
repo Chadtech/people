@@ -8,6 +8,7 @@ import qualified GenerationError
 import People.DomainInstances ()
 import qualified PromptSnapshot
 
+import qualified Acadia.Records as Records
 import Acadia.Transaction (Transaction)
 import qualified Chat
 import Control.Concurrent (threadDelay)
@@ -40,6 +41,8 @@ import qualified MemoryId
 import qualified People.Database as Database
 import qualified People.OpenAI as OpenAI
 import qualified People.Prompt as Prompt
+import qualified People.SelectionReason as SelectionReason
+import Snapshot (Snapshot, Sources (..))
 import Person (Person)
 import qualified Person
 import qualified PersonId
@@ -186,9 +189,7 @@ runCycle database requestValue generate =
                             run
                                 ( Generation.savePrompt
                                     generation.id
-                                    ( PromptSnapshot.PromptSnapshot
-                                        (Text.decodeUtf8 (Lazy.toStrict (encode snapshot)))
-                                    )
+                                    (PromptSnapshot.Saved (promptSnapshot prompt snapshot))
                                 )
                     loop :: Int -> [Value] -> [(OpenAI.ToolCall, Value)] -> IO ()
                     loop count history previous =
@@ -332,3 +333,29 @@ isAiPerson person =
 
         Person.HumanPerson ->
             False
+
+
+promptSnapshot :: Prompt.Prompt -> Value -> Snapshot
+promptSnapshot prompt evidence =
+    let
+        sources :: [Prompt.SelectionBlock] -> Sources
+        sources blocks =
+            foldr
+                (\block rest ->
+                    SourceItem
+                        ( Records.Record3
+                            block.blockSource
+                            (SelectionReason.toText block.blockSelectionReason)
+                            block.blockText
+                        )
+                        rest
+                )
+                NoSources
+                blocks
+    in
+    Records.Record5
+        (sources prompt.selection.includedBlocks)
+        (sources prompt.selection.omittedBlocks)
+        (fromIntegral prompt.selection.contextBudget)
+        (Just prompt.instructions)
+        (Text.decodeUtf8 (Lazy.toStrict (encode evidence)))
