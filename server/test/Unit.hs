@@ -5,7 +5,7 @@ module Main (main) where
 import People.DomainInstances ()
 
 import Control.Monad (forM_, unless)
-import Data.Aeson (Value (..), encode, object, toJSON, (.=))
+import Data.Aeson (ToJSON, Value (..), encode, object, toJSON, (.=))
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.ByteString.Lazy as Lazy
 import Data.Either (isLeft)
@@ -16,6 +16,7 @@ import qualified GoalId
 import qualified People.Environment as Environment
 import qualified People.OpenAI as OpenAI
 import qualified People.Prompt as Prompt
+import qualified People.Cognition as Cognition
 import qualified People.SelectionReason as SelectionReason
 
 
@@ -50,6 +51,7 @@ call name args =
 main :: IO ()
 main =
     do
+        checkCognition
         assert
             ( toJSON
                 ( Prompt.PromptSelection
@@ -259,6 +261,7 @@ main =
         let
             prompt =
                 Prompt.Prompt
+                    Prompt.Narration
                     "Speak plainly."
                     "Context"
                     (Prompt.PromptSelection [] [] 24000 6000)
@@ -302,3 +305,73 @@ main =
                 ioError (userError "Request must be an object")
         putStrLn
             "PASS: plain replies, tool calls, reasoning replay, validation, refusals, and ID bounds."
+
+
+checkCognition :: IO ()
+checkCognition =
+    do
+        let
+            proposal action support =
+                Cognition.Proposal action Cognition.Uneasy 50 support
+                    "PRIVATE_EVIDENCE" "PRIVATE_MOTIVE"
+            assessment =
+                Cognition.Assessment
+                    [ proposal Cognition.Connect (Cognition.Drives 100 0 0)
+                    , proposal Cognition.Investigate (Cognition.Drives 0 100 0)
+                    ]
+                    "PRIVATE_UNCERTAINTY" (Cognition.Drives 1 0 (-1))
+            encodeText :: ToJSON a => a -> T.Text
+            encodeText = Text.decodeUtf8 . Lazy.toStrict . encode
+            base = Prompt.Prompt Prompt.Narration "Speak plainly."
+                "Morgan: What evidence supports this?"
+                (Prompt.PromptSelection [] [] 24000 6000)
+            observer = Cognition.appraisalPrompt Cognition.initialDrives base
+            projection = Cognition.select (Cognition.Drives 0 100 0) assessment
+        assert (Cognition.parseAssessment (encodeText assessment) == Right assessment)
+            "Valid appraisal round trips"
+        assert (projection == Just (Cognition.Projection Cognition.Investigate Cognition.Uneasy))
+            "Drive weights change action selection"
+        assert (Cognition.select (Cognition.Drives 100 0 0) assessment
+            == Just (Cognition.Projection Cognition.Connect Cognition.Uneasy))
+            "Affiliation favors connection"
+        forM_
+            [ "not JSON"
+            , encodeText (assessment { Cognition.proposals = [] })
+            , encodeText (assessment { Cognition.changes = Cognition.Drives 2 0 0 })
+            , encodeText (assessment { Cognition.uncertainty = "" })
+            , encodeText (assessment { Cognition.proposals =
+                [proposal Cognition.Answer (Cognition.Drives 101 0 0),
+                 proposal Cognition.Connect Cognition.initialDrives] })
+            ] $ \invalid ->
+                assert (isLeft (Cognition.parseAssessment invalid))
+                    "Malformed and unbounded appraisals must fail"
+        assert (Cognition.select Cognition.initialDrives
+            (assessment { Cognition.proposals = [] }) == Nothing)
+            "Empty appraisal selection is total"
+        client <- OpenAI.connect "test-key-never-sent" "test-model"
+        assert
+            (OpenAI.requestValue client observer [object ["private" .= True]]
+                == OpenAI.requestValue client observer [])
+            "Appraisal request builder cannot replay another stage's history"
+        case OpenAI.requestValue client observer [] of
+            Object request -> do
+                assert (KeyMap.lookup "tools" request == Just (toJSON ([] :: [Value])))
+                    "Appraisal has no action tools"
+                assert (KeyMap.member "text" request)
+                    "Appraisal requests a structured output schema"
+
+            _ -> ioError (userError "Appraisal request must be an object")
+        case projection of
+            Nothing -> ioError (userError "Missing test projection")
+
+            Just selected -> do
+                let
+                    narrator = Cognition.narratorPrompt selected base
+                    request = encodeText (OpenAI.requestValue client narrator [])
+                forM_ ["PRIVATE_EVIDENCE", "PRIVATE_MOTIVE", "PRIVATE_UNCERTAINTY", "Private drive state"] $ \secret ->
+                    assert (not (T.isInfixOf secret request))
+                        "Private appraisal material leaked into narration"
+                assert (T.isInfixOf "investigate" request && T.isInfixOf "uneasy" request)
+                    "Narrator receives selected action and coarse feeling"
+                assert (Prompt.context base `T.isInfixOf` Prompt.context narrator)
+                    "Narrator retains ordinary conversation context"

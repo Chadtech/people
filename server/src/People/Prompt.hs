@@ -2,7 +2,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module People.Prompt
-    ( Prompt (..)
+    ( Purpose (..)
+    , Prompt (..)
     , PromptSelection (..)
     , SelectionBlock (..)
     , PromptError (..)
@@ -65,10 +66,17 @@ errorToString promptError =
             \exceed the context budget. Shorten these inputs before retrying."
 
 
+data Purpose
+    = Narration
+    | Appraisal
+    deriving (Eq, Show)
+
+
 -- The snapshot records selection decisions separately from model-visible text.
 data Prompt
     = Prompt
-    { instructions :: Text
+    { purpose :: Purpose
+    , instructions :: Text
     , context :: Text
     , selection :: PromptSelection
     }
@@ -181,7 +189,7 @@ buildAiPersonPrompt person profile roster history goals memories =
 
                 available :: Int
                 available =
-                    budget - coreCost - latestCost
+                    budget - coreCost - latestCost - 512
 
                 memoryAllowance :: Int
                 memoryAllowance =
@@ -201,12 +209,13 @@ buildAiPersonPrompt person profile roster history goals memories =
                 omitted =
                     excluded ++ map excludeByBudget (historyOut ++ memoryOut)
             in
-                if coreCost + latestCost > budget
+                if coreCost + latestCost + 512 > budget
                     then
                         Left ContextBudgetExceeded
                     else
                         Right
                             ( Prompt
+                                Narration
                                 rules
                                 (T.intercalate "\n\n" (map render included))
                                 ( PromptSelection
@@ -245,6 +254,7 @@ buildAiPersonPrompt person profile roster history goals memories =
                   \completing your own goal, and saving a memory. Do not claim external actions."
                 ]
 
+        -- Reserve space for bounded private drives or the narrator inclination.
         budget :: Int
         budget =
             24000

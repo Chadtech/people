@@ -16,6 +16,7 @@ data SelectionReason
     | ConversationParticipants
     | RecentConversation
     | ActiveGoal
+    | CognitiveContext
     | CuratedContext
     | ModelReflection GenerationId
     | RetiredMemory
@@ -38,6 +39,9 @@ toText selectionReason =
 
         ActiveGoal ->
             "active goal"
+
+        CognitiveContext ->
+            "restricted cognitive context"
 
         CuratedContext ->
             "curated context"

@@ -240,7 +240,8 @@ Person menu needed to recover. Associate feedback with that selector, announce
 it as an alert, preserve the draft, and clear it when the selection changes.
 
 Conversation autonomy is opt-in. Show its current interval and paid-call behavior
-beside the controls. Stop cancels the active turn and disables autonomy; the
+beside the controls, including paid appraisal and reply calls and possible
+additional calls for saved actions. Stop cancels the active turn and disables autonomy; the
 resulting state remains visible after page reload.
 
 Prompt snapshots load on request inside a
@@ -251,6 +252,14 @@ Represent an unsaved prompt explicitly, and retain serialized JSON only as exact
 evidence for the raw disclosure. Keep
 excluded inputs and the exact serialized request in separate disclosures, so
 the readable view preserves access to the original saved evidence.
+
+Generation inspection identifies whether inputs belong to the outside observer
+or the speaking narrator. Keep private dispositions, predictions, the selected
+inclination, and exact appraisal evidence in separate disclosures. Carry this
+information in the typed snapshot; rendering does not decode the raw JSON.
+Developer inspection never enters the person's model context. Historical
+snapshots without a cognitive trace remain readable when loaded in the current
+schema. Drive scoring and psychological validity remain experimental.
 
 Guidelines for new or revised components:
 
@@ -299,6 +308,7 @@ experiment into an established preference or expand a small task into a redesign
 
 | Date | Status | Decision and reason |
 | --- | --- | --- |
+| 2026-10-05 | Established | Typed generation traces distinguish private third-person appraisal from narrator-accessible inputs; separate disclosures expose the information boundary. |
 | 2026-10-03 | Established | Prompt inspection consumes a shared typed snapshot decoded by the endpoint; an explicit unsaved state replaces empty text, while raw JSON remains available as evidence. |
 | 2026-09-27 | Established | Let the conversation area fill the remaining page height instead of using 75vh plus surrounding content; removes incidental whole-card scrolling while retaining transcript scrolling and a usable minimum height. |
 | 2026-09-27 | Established | Use `bgNightwood1` for alternating participant rows instead of a custom color; reuse the palette tokens. |

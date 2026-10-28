@@ -1,0 +1,15 @@
+database module CognitiveTrace exposing (CognitiveTrace, Stage(..))
+
+
+type Stage
+    = Observing
+    | Speaking
+
+
+type alias CognitiveTrace =
+    { stage : Stage
+    , dispositions : String
+    , predictions : Maybe String
+    , inclination : Maybe String
+    , appraisal : String
+    }

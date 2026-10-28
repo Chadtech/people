@@ -683,7 +683,9 @@ conversationView model conversation =
             if conversation.autonomous then
                 "Autonomy is on: one turn every "
                     ++ IntervalSecondsUtil.toString conversation.intervalSeconds
-                    ++ " seconds while the worker runs. OpenAI calls are paid. Stop turns autonomy off."
+                    ++ " seconds while the worker runs. Each turn makes paid "
+                    ++ "appraisal and reply calls; saved actions may add calls. "
+                    ++ "Stop turns autonomy off."
 
             else
                 "Autonomy is off. You can run individual replies, a short "

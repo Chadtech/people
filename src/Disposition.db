@@ -1,0 +1,103 @@
+database module Disposition exposing
+    ( Changes
+    , Disposition
+    , Shift(..)
+    , evolve
+    , endpoint getDispositions
+    )
+
+import Cookies exposing (Cookies)
+import PersonId exposing (PersonId)
+import Rows as R exposing (Rows)
+import Security
+import Store
+import Table exposing (Table)
+
+
+type alias Disposition =
+    { personId : PersonId
+    , affiliation : UInt64
+    , curiosity : UInt64
+    , competence : UInt64
+    }
+
+
+type Shift
+    = Lower
+    | Steady
+    | Raise
+
+
+type alias Changes =
+    { affiliation : Shift
+    , curiosity : Shift
+    , competence : Shift
+    }
+
+
+dispositions : Table Security.Unrestricted Disposition
+dispositions :=
+    Table.table
+        { primary = .personId
+        , security = Security.unrestricted
+        , indexes = []
+        , constraints = []
+        }
+
+
+getDispositions : Cookies -> PersonId -> Transaction (Rows Disposition)
+getDispositions _ personId =
+    Table.access dispositions Security.Unrestricted
+        |> R.filter (\row -> row.personId == personId)
+        |> R.selectAll
+
+
+evolve : PersonId -> Changes -> Transaction ()
+evolve personId changes =
+    let
+        existing : Maybe Disposition
+        existing :=
+            Table.access dispositions Security.Unrestricted
+                |> R.filter (\row -> row.personId == personId)
+                |> R.selectMaybe
+    in
+    case existing of
+        Nothing ->
+            Table.insert dispositions Security.Unrestricted
+                { personId = personId
+                , affiliation = shift changes.affiliation 50
+                , curiosity = shift changes.curiosity 50
+                , competence = shift changes.competence 50
+                }
+
+        Just _ ->
+            Store.update dispositions
+                (\row -> row.personId == personId)
+                (\row ->
+                    { row
+                        | affiliation = shift changes.affiliation row.affiliation
+                        , curiosity = shift changes.curiosity row.curiosity
+                        , competence = shift changes.competence row.competence
+                    }
+                )
+
+
+shift : Shift -> UInt64 -> UInt64
+shift change value =
+    case change of
+        Lower ->
+            if value == 0 then
+                0
+
+            else
+                value - 1
+
+        Steady ->
+            value
+
+        Raise ->
+            if value >= 100 then
+                100
+
+            else
+                value + 1

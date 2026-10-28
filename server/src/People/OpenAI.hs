@@ -37,7 +37,7 @@ import Data.Aeson
     )
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
-import Data.Aeson.Types (Parser, parseEither)
+import Data.Aeson.Types (Pair, Parser, parseEither)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as Lazy
 import Data.List (nub)
@@ -51,6 +51,7 @@ import Network.HTTP.Client
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types.Status (statusCode)
 import qualified People.Prompt as Prompt
+import qualified People.Cognition as Cognition
 import Text.Read (readMaybe)
 
 
@@ -157,27 +158,58 @@ connect apiKey model =
 requestValue :: Client -> Prompt.Prompt -> [Value] -> Value
 requestValue (Client _ _ model) prompt history =
     object
-        [ "model" .= model
+        ( [ "model" .= model
         , "store" .= False
         , "include" .= (["reasoning.encrypted_content"] :: [Text])
         , "max_output_tokens" .= (2048 :: Int)
         , "instructions" .= Prompt.instructions prompt
         , "input"
             .= ( object ["role" .= ("user" :: Text), "content" .= Prompt.context prompt]
-                    : history
+                    : continuation
                )
         , "parallel_tool_calls" .= False
-        , "tools"
-            .= [ tool "create_goal" "Create one specific goal for yourself." "description" 1000
-               , tool
-                    "complete_goal"
-                    "Complete one of your own active goals using its decimal ID."
-                    "goal_id"
-                    20
-               , tool "save_memory" "Save a useful recollection for yourself." "content" 2000
-               ]
-        ]
+        , "tools" .= availableTools
+        ] ++ responseFormat
+        )
     where
+        continuation :: [Value]
+        continuation =
+            case Prompt.purpose prompt of
+                Prompt.Appraisal ->
+                    []
+
+                Prompt.Narration ->
+                    history
+
+        availableTools :: [Value]
+        availableTools =
+            case Prompt.purpose prompt of
+                Prompt.Appraisal ->
+                    []
+
+                Prompt.Narration ->
+                    [ tool "create_goal" "Create one specific goal for yourself." "description" 1000
+                    , tool "complete_goal" "Complete one of your own active goals using its decimal ID." "goal_id" 20
+                    , tool "save_memory" "Save a useful recollection for yourself." "content" 2000
+                    ]
+
+        responseFormat :: [Pair]
+        responseFormat =
+            case Prompt.purpose prompt of
+                Prompt.Narration ->
+                    []
+
+                Prompt.Appraisal ->
+                    [ "text" .= object
+                        [ "format" .= object
+                            [ "type" .= ("json_schema" :: Text)
+                            , "name" .= ("person_appraisal" :: Text)
+                            , "strict" .= True
+                            , "schema" .= Cognition.schema
+                            ]
+                        ]
+                    ]
+
         tool :: Text -> Text -> Text -> Int -> Value
         tool name description field limit =
             object

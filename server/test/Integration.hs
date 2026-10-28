@@ -36,6 +36,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as Text
 import Data.Word (Word64)
+import qualified Disposition
 import qualified Fixtures
 import Generation (GenerationSummary)
 import qualified Generation
@@ -48,6 +49,7 @@ import qualified Origin
 import qualified People.Database as Database
 import qualified People.OpenAI as OpenAI
 import qualified People.Prompt as Prompt
+import qualified People.Cognition as Cognition
 import qualified People.Worker as Worker
 import Person (Person)
 import qualified Person
@@ -255,6 +257,7 @@ checkConversationRefresh database conversationId =
 checkTools :: Database.Database -> IO ()
 checkTools database =
     do
+        checkCognition database
         let
             run :: Database.Transaction a -> IO a
             run =
@@ -394,7 +397,7 @@ checkTools database =
 
                         _ ->
                             ioError (userError "Unexpected tool loop iteration")
-        Worker.runCycle database request generate
+        runCycle database request generate
         count <- readIORef calls
         assert (count == 6) "Tools continue through results to a final reply"
         messages <- run (Chat.getMessages conversation)
@@ -415,7 +418,7 @@ checkTools database =
         -- A later failure cannot undo an action already acknowledged by a tool.
         Just latest <- run (Conversation.getConversation conversation)
         failedTurn <- run (Chat.requestTurn conversation latest.revision person)
-        Worker.runCycle
+        runCycle
             database
             request
             ( \_ history ->
@@ -454,7 +457,7 @@ checkTools database =
         run (Chat.expireGeneration expired)
         Just recovered <- run (Conversation.getConversation conversation)
         looping <- run (Chat.requestTurn conversation recovered.revision person)
-        Worker.runCycle
+        runCycle
             database
             request
             ( \_ history ->
@@ -610,7 +613,7 @@ runLifecycle url =
 
             testPrompt =
                 PromptSnapshot.Saved
-                    (Records.Record5 included omitted 24000 (Just "Instructions") "Exact evidence")
+                    (Records.Record6 included omitted 24000 (Just "Instructions") "Exact evidence" Nothing)
         run (Generation.savePrompt generationId testPrompt)
         Just (PromptSnapshot.Saved storedPrompt) <-
             run (Generation.getGenerationPrompt conversationId generationId)
@@ -787,7 +790,7 @@ runLifecycle url =
                     pure (OpenAI.Outcome "A useful next step." [] [])
             cycleOnce :: Database.Database -> IO ()
             cycleOnce connection =
-                Worker.runCycle connection (\_ _ -> object []) generate
+                runCycle connection (\_ _ -> object []) generate
         -- A fresh database connection emulates worker startup using saved state.
         restartedConnection <- Database.connect url
         concurrently_ (cycleOnce restartedConnection) (cycleOnce database)
@@ -1015,7 +1018,7 @@ runLifecycle url =
                     pure
                         (OpenAI.Outcome "Late message" [] [])
         stoppedResult <-
-            timeout 15000000 (Worker.runCycle database (\_ _ -> object []) stoppedModel)
+            timeout 15000000 (runCycle database (\_ _ -> object []) stoppedModel)
         assert
             (stoppedResult == Just ())
             "Cancellation must interrupt a held model request"
@@ -1133,7 +1136,7 @@ runLifecycle url =
                         (not (T.isInfixOf "Posted while the AI was thinking" (Prompt.context prompt)))
                         "An in-flight reply keeps the context it actually saw"
                     pure (OpenAI.Outcome "AI response" [] [])
-        Worker.runCycle database (\_ _ -> object []) concurrentHuman
+        runCycle database (\_ _ -> object []) concurrentHuman
         humanHistory <- run (Chat.getMessages humanConversation)
         assert
             (map (\message -> message.author) humanHistory == [human, human, personId])
@@ -1150,7 +1153,7 @@ runLifecycle url =
             run (Conversation.createConversation "Human-only conversation" human)
         run (Chat.sendMessage humanOnly "No AI needed")
         run (Conversation.setRunLength humanOnly 0 2)
-        Worker.runCycle
+        runCycle
             database
             (\_ _ -> object [])
             ( \_ _ -> ioError (userError "A human-only conversation must never call a model")
@@ -1234,3 +1237,135 @@ runLifecycle url =
             \duplicate-safe session fixtures."
 
         checkTools database
+
+
+runCycle
+    :: Database.Database
+    -> (Prompt.Prompt -> [Value] -> Value)
+    -> (Prompt.Prompt -> [Value] -> IO OpenAI.Outcome)
+    -> IO ()
+runCycle database request narrator =
+    Worker.runCycle database request generate
+    where
+        generate prompt history =
+            case Prompt.purpose prompt of
+                Prompt.Appraisal ->
+                    pure (OpenAI.Outcome
+                        (MessageContent.MessageContent
+                            (Text.decodeUtf8 (Lazy.toStrict (encode testAssessment)))) [] [])
+
+                Prompt.Narration ->
+                    narrator prompt history
+
+
+testAssessment :: Cognition.Assessment
+testAssessment =
+    Cognition.Assessment
+        [ Cognition.Proposal Cognition.Answer Cognition.Interested 80
+            (Cognition.Drives 50 50 50) "Current conversation" "Curiosity"
+        , Cognition.Proposal Cognition.Connect Cognition.Warm 20
+            (Cognition.Drives 50 50 50) "Participants present" "Affiliation"
+        ]
+        "Other interpretations are possible."
+        (Cognition.Drives 0 0 0)
+
+
+checkCognition :: Database.Database -> IO ()
+checkCognition database =
+    do
+        putStrLn "Checking appraisal information boundaries and persistent dispositions"
+        let
+            run :: Database.Transaction a -> IO a
+            run = Database.runTransaction database
+            encodeText :: ToJSON a => a -> Text
+            encodeText = Text.decodeUtf8 . Lazy.toStrict . encode
+            assessment :: Cognition.Assessment
+            assessment = testAssessment
+                { Cognition.changes = Cognition.Drives 1 0 (-1)
+                , Cognition.uncertainty = "PRIVATE_UNCERTAINTY"
+                }
+            dispositionChanges :: Disposition.Changes
+            dispositionChanges =
+                Cognition.dispositionChanges assessment.changes
+        person <- run (Person.createNewPerson "Appraisal integration person")
+        Just initial <- run (Person.loadPersonPage person)
+        run (Person.updatePersonIdentity person initial.person.revision "Curious." "Learn.")
+        conversation <- run (Conversation.createConversation "Appraisal integration" person)
+        client <- OpenAI.connect "offline-key-never-sent" "offline-model"
+        let
+            request = OpenAI.requestValue client
+            generate :: Prompt.Prompt -> [Value] -> IO OpenAI.Outcome
+            generate prompt history =
+                case Prompt.purpose prompt of
+                    Prompt.Appraisal -> do
+                        assert (null history) "Appraisal starts independently"
+                        assert (T.isInfixOf "Appraisal integration person" prompt.context)
+                            "Observer refers to the named person"
+                        pure (OpenAI.Outcome
+                            (MessageContent.MessageContent (encodeText assessment)) []
+                            [object ["private_reasoning" .= ("PRIVATE_REASONING" :: Text)]])
+
+                    Prompt.Narration -> do
+                        assert (null history) "Observer provider history does not reach narrator"
+                        let
+                            sent = encodeText (request prompt history)
+                        forM_ ["PRIVATE_UNCERTAINTY", "PRIVATE_REASONING", "Private drive state"] $ \secret ->
+                            assert (not (T.isInfixOf secret sent)) "Private appraisal leaked"
+                        pure (OpenAI.Outcome "A public reply." [] [])
+            queue :: IO GenerationId.GenerationId
+            queue = do
+                conversations <- run Conversation.getConversations
+                [current] <- pure (filter (\row -> row.id == conversation) conversations)
+                run (Chat.requestTurn conversation current.revision person)
+            state :: IO (Word64, Word64, Word64)
+            state = do
+                [drives] <- run (Disposition.getDispositions person)
+                pure (drives.affiliation, drives.curiosity, drives.competence)
+        first <- queue
+        Worker.runCycle database request generate
+        firstState <- state
+        assert (firstState == (51, 50, 49)) "Completed turn persists drive changes"
+        messages <- run (Chat.getMessages conversation)
+        assert (map (.content) messages == ["A public reply."])
+            "Only narration becomes a public message"
+        Just (PromptSnapshot.Saved saved) <- run (Generation.getGenerationPrompt conversation first)
+        assert (T.isInfixOf "PRIVATE_UNCERTAINTY" saved.raw && T.isInfixOf "PRIVATE_REASONING" saved.raw)
+            "Private evidence remains developer-inspectable"
+        _ <- queue
+        Worker.runCycle database request generate
+        secondState <- state
+        assert (secondState == (52, 50, 48)) "Next turn preserves dispositions"
+        _ <- queue
+        Worker.runCycle database request
+            (\_ _ -> pure (OpenAI.Outcome "invalid appraisal" [] []))
+        afterFailure <- state
+        assert (afterFailure == secondState) "Invalid appraisal must not mutate drives"
+        beforeCancel <- run (Chat.getMessages conversation)
+        cancelled <- queue
+        modelFinished <- newIORef False
+        let
+            heldObserver :: Prompt.Prompt -> [Value] -> IO OpenAI.Outcome
+            heldObserver _ _ = do
+                run (Chat.stopConversation conversation)
+                threadDelay 30000000
+                writeIORef modelFinished True
+                pure (OpenAI.Outcome "late appraisal" [] [])
+        completed <- timeout 30000000 (Worker.runCycle database request heldObserver)
+        assert (completed == Just ()) "Cancellation interrupts appraisal"
+        finished <- readIORef modelFinished
+        assert (not finished) "Cancelled observer call cannot proceed to narration"
+        afterCancel <- state
+        assert (afterCancel == secondState) "Cancelled appraisal leaves drives unchanged"
+        afterMessages <- run (Chat.getMessages conversation)
+        assert (length beforeCancel == length afterMessages) "Cancelled appraisal publishes nothing"
+        mustFail (run (Chat.finishAppraisedGeneration cancelled "Late reply."
+            dispositionChanges))
+        -- Exercise both persistence branches and both clamps through real transactions.
+        forM_ ([1 .. 55] :: [Int]) $ \_ -> do
+            turn <- queue
+            run (Generation.claimGeneration turn 180)
+            run (Chat.finishAppraisedGeneration turn "Bound check."
+                dispositionChanges)
+        bounded <- state
+        assert (bounded == (100, 50, 0)) "Persistent drives clamp at both boundaries"
+        putStrLn "PASS: appraisal isolation, atomic disposition updates, bounds, failure, and cancellation"

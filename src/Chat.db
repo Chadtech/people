@@ -6,6 +6,7 @@ database module Chat exposing
     , endpoint expireGeneration
     , endpoint failGeneration
     , endpoint finishGeneration
+    , endpoint finishAppraisedGeneration
     , endpoint getConversationDetailsFlags
     , endpoint getConversationPageFlags
     , endpoint getMessages
@@ -18,6 +19,7 @@ database module Chat exposing
 import Conversation exposing (Conversation)
 import ConversationId exposing (ConversationId)
 import Cookies exposing (Cookies)
+import Disposition
 import Generation exposing (Generation)
 import GenerationError exposing (GenerationError(..))
 import GenerationId exposing (GenerationId)
@@ -491,3 +493,21 @@ saveGenerationMemory _ id content =
             requireRunningGeneration id
     in
     Memory.insertMemoryWithId generation.speaker content (MemoryKeywords "") (Origin.Reflection id)
+
+
+finishAppraisedGeneration :
+    Cookies
+    -> GenerationId
+    -> MessageContent
+    -> Disposition.Changes
+    -> Transaction ()
+finishAppraisedGeneration cookies id content changes =
+    let
+        generation : Generation
+        generation :=
+            requireRunningGeneration id
+
+        () :=
+            Disposition.evolve generation.speaker changes
+    in
+    finishGeneration cookies id content

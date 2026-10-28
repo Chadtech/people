@@ -10,6 +10,11 @@ import qualified PromptSnapshot
 
 import qualified Acadia.Records as Records
 import Acadia.Transaction (Transaction)
+import CognitiveTrace (CognitiveTrace)
+import qualified CognitiveTrace
+import qualified Disposition
+import qualified MessageContent
+import qualified People.Cognition as Cognition
 import qualified Chat
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (race)
@@ -25,7 +30,7 @@ import Control.Exception
 import Control.Monad (forM_, forever, unless, void)
 import Conversation (Conversation)
 import qualified Conversation
-import Data.Aeson (Value, encode, object, (.=))
+import Data.Aeson (ToJSON, Value, encode, object, (.=))
 import qualified Data.ByteString.Lazy as Lazy
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (find, sortOn)
@@ -154,9 +159,22 @@ runCycle database requestValue generate =
                                     (ioError . userError . Prompt.errorToString)
                                     pure
                                     (Prompt.buildPrompt person roster messages goals memories)
+                            dispositions <- run (Disposition.getDispositions person.id)
+                            let
+                                drives :: Cognition.Drives
+                                drives =
+                                    case dispositions of
+                                        state : _ ->
+                                            Cognition.Drives
+                                                (fromIntegral state.affiliation)
+                                                (fromIntegral state.curiosity)
+                                                (fromIntegral state.competence)
+
+                                        [] ->
+                                            Cognition.initialDrives
                             result <-
                                 race
-                                    (timeout 175000000 (runTurn generation prompt))
+                                    (timeout 175000000 (runTurn generation drives prompt))
                                     (waitForCancellation generation)
                             case result of
                                 Right () ->
@@ -170,27 +188,90 @@ runCycle database requestValue generate =
 
                                 Left (Just ()) ->
                                     putStrLn ("Completed generation " ++ show generation.id)
-        runTurn :: Generation -> Prompt.Prompt -> IO ()
-        runTurn generation prompt =
+        runTurn :: Generation -> Cognition.Drives -> Prompt.Prompt -> IO ()
+        runTurn generation drives base =
             do
+                let
+                    observer :: Prompt.Prompt
+                    observer =
+                        Cognition.appraisalPrompt drives base
+
+                    observerRequest :: Value
+                    observerRequest =
+                        requestValue observer []
+
+                    saveAppraisal :: Value -> IO ()
+                    saveAppraisal evidence =
+                        let
+                            trace :: CognitiveTrace
+                            trace =
+                                cognitiveTrace CognitiveTrace.Observing drives
+                                    Nothing Nothing evidence
+
+                            snapshot :: Snapshot
+                            snapshot =
+                                promptSnapshot observer evidence (Just trace)
+                        in
+                        run
+                            (Generation.savePrompt generation.id
+                                (PromptSnapshot.Saved snapshot))
+                saveAppraisal (object ["stage" .= ("appraisal" :: T.Text), "request" .= observerRequest])
+                observation <- generate observer []
+                let
+                    MessageContent.MessageContent raw = observation.reply
+
+                    observerEvidence :: Value
+                    observerEvidence =
+                        object
+                            [ "request" .= observerRequest
+                            , "output" .= observation.outputItems
+                            , "reply" .= raw
+                            ]
+                saveAppraisal (object ["stage" .= ("appraisal" :: T.Text), "appraisal" .= observerEvidence])
+                unless (null observation.toolCalls)
+                    (ioError (userError "The appraisal attempted a tool action."))
+                assessment <- either (ioError . userError) pure (Cognition.parseAssessment raw)
+                projection <- maybe
+                    (ioError (userError "No appraisal proposals were available."))
+                    pure
+                    (Cognition.select drives assessment)
+                let
+                    prompt :: Prompt.Prompt
+                    prompt =
+                        Cognition.narratorPrompt projection base
                 requests <- newIORef ([] :: [Value])
                 let
+                    save :: [Value] -> IO ()
                     save history =
                         do
                             sent <- readIORef requests
                             let
+                                snapshot :: Value
                                 snapshot =
                                     object
-                                        [ "request" .= requestValue prompt []
+                                        [ "stage" .= ("narration" :: T.Text)
+                                        , "appraisal" .= observerEvidence
+                                        , "assessment" .= assessment
+                                        , "drives_before" .= drives
+                                        , "projection" .= projection
+                                        , "request" .= requestValue prompt []
                                         , "requests" .= sent
                                         , "transcript" .= history
                                         , "selection" .= Prompt.selection prompt
                                         ]
+
+                                trace :: CognitiveTrace
+                                trace =
+                                    cognitiveTrace CognitiveTrace.Speaking drives
+                                        (Just assessment) (Just projection)
+                                        observerEvidence
+
+                                saved :: Snapshot
+                                saved =
+                                    promptSnapshot prompt snapshot (Just trace)
                             run
-                                ( Generation.savePrompt
-                                    generation.id
-                                    (PromptSnapshot.Saved (promptSnapshot prompt snapshot))
-                                )
+                                (Generation.savePrompt generation.id
+                                    (PromptSnapshot.Saved saved))
                     loop :: Int -> [Value] -> [(OpenAI.ToolCall, Value)] -> IO ()
                     loop count history previous =
                         do
@@ -202,7 +283,9 @@ runCycle database requestValue generate =
                                     history ++ outcome.outputItems
                             save withOutput
                             if null outcome.toolCalls
-                                then run (Chat.finishGeneration generation.id outcome.reply)
+                                then run
+                                    (Chat.finishAppraisedGeneration generation.id outcome.reply
+                                        (Cognition.dispositionChanges assessment.changes))
                                 else do
                                     unless
                                         (count + length outcome.toolCalls <= 8)
@@ -335,8 +418,8 @@ isAiPerson person =
             False
 
 
-promptSnapshot :: Prompt.Prompt -> Value -> Snapshot
-promptSnapshot prompt evidence =
+promptSnapshot :: Prompt.Prompt -> Value -> Maybe CognitiveTrace -> Snapshot
+promptSnapshot prompt evidence cognition =
     let
         sources :: [Prompt.SelectionBlock] -> Sources
         sources blocks =
@@ -353,9 +436,31 @@ promptSnapshot prompt evidence =
                 NoSources
                 blocks
     in
-    Records.Record5
+    Records.Record6
         (sources prompt.selection.includedBlocks)
         (sources prompt.selection.omittedBlocks)
         (fromIntegral prompt.selection.contextBudget)
         (Just prompt.instructions)
-        (Text.decodeUtf8 (Lazy.toStrict (encode evidence)))
+        (jsonText evidence)
+        cognition
+
+
+jsonText :: ToJSON a => a -> T.Text
+jsonText =
+    Text.decodeUtf8 . Lazy.toStrict . encode
+
+
+cognitiveTrace
+    :: CognitiveTrace.Stage
+    -> Cognition.Drives
+    -> Maybe Cognition.Assessment
+    -> Maybe Cognition.Projection
+    -> Value
+    -> CognitiveTrace
+cognitiveTrace stage drives assessment projection evidence =
+    Records.Record5
+        stage
+        (jsonText drives)
+        (fmap jsonText assessment)
+        (fmap jsonText projection)
+        (jsonText evidence)

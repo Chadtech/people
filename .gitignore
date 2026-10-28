@@ -33,3 +33,4 @@ index.html
 /.env.local
 /.env
 /src/Fixtures.db
+.DS_Store

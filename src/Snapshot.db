@@ -1,6 +1,9 @@
 database module Snapshot exposing (Snapshot, Source, Sources(..))
 
 
+import CognitiveTrace exposing (CognitiveTrace)
+
+
 type alias Source =
     { source : String
     , selectionReason : String
@@ -19,4 +22,5 @@ type alias Snapshot =
     , budget : UInt64
     , instructions : Maybe String
     , raw : String
+    , cognition : Maybe CognitiveTrace
     }
